@@ -18,6 +18,8 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 
+import type { FrankSceneLifecycle } from "./frank/scene-lifecycle";
+
 type RecorderStatus = "idle" | "preview" | "recording" | "paused";
 type CameraPosition = { x: number; y: number };
 type ViewportRect = { x: number; y: number; width: number; height: number };
@@ -160,12 +162,14 @@ const fitInside = (
 
 export const FrameRecorder = ({
   excalidrawAPI,
+  sceneLifecycle,
   theme,
   isOpen,
   onOpen,
   onClose,
 }: {
   excalidrawAPI: ExcalidrawImperativeAPI;
+  sceneLifecycle: FrankSceneLifecycle;
   theme: AppState["theme"];
   isOpen: boolean;
   onOpen: () => void;
@@ -200,12 +204,26 @@ export const FrameRecorder = ({
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordedSecondsRef = useRef(0);
   const currentFrameIdRef = useRef<string | null>(null);
+  const isOpenRef = useRef(isOpen);
+  const statusRef = useRef(status);
+  const previewRequestIdRef = useRef(0);
+  const previewPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
+  const recordingStartPendingRef = useRef(false);
+  const stopPreviewRef = useRef<() => void>(() => {});
+  const onCloseRef = useRef(onClose);
+  isOpenRef.current = isOpen;
+  statusRef.current = status;
+  onCloseRef.current = onClose;
 
   const getCurrentFrame = () => {
-    const id = currentFrameIdRef.current;
-    return id
-      ? frames.find((frame) => frame.id === id) || null
-      : frames[currentIndex] || null;
+    const id = currentFrameIdRef.current || frames[currentIndex]?.id;
+    if (!id) {
+      return null;
+    }
+    const element = excalidrawAPI
+      .getSceneElements()
+      .find((element) => element.id === id);
+    return element && isFrameElement(element) ? element : null;
   };
 
   const refreshFrames = () => {
@@ -228,9 +246,16 @@ export const FrameRecorder = ({
       return;
     }
     const nextIndex = (index + frames.length) % frames.length;
-    const frame = frames[nextIndex];
+    const frameId = frames[nextIndex].id;
+    const frame = excalidrawAPI
+      .getSceneElements()
+      .find((element) => element.id === frameId);
+    if (!frame || !isFrameElement(frame)) {
+      refreshFrames();
+      return;
+    }
     setCurrentIndex(nextIndex);
-    currentFrameIdRef.current = frame.id;
+    currentFrameIdRef.current = frameId;
     excalidrawAPI.setViewport({
       target: [frame],
       fit: "scale-down",
@@ -398,112 +423,146 @@ export const FrameRecorder = ({
     if (mediaStreamRef.current) {
       return mediaStreamRef.current;
     }
+    if (previewPromiseRef.current) {
+      return previewPromiseRef.current;
+    }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+    const requestId = ++previewRequestIdRef.current;
+    const request = navigator.mediaDevices
+      .getUserMedia({
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
           facingMode: "user",
         },
         audio: { echoCancellation: true, noiseSuppression: true },
+      })
+      .then(async (stream) => {
+        if (
+          requestId !== previewRequestIdRef.current ||
+          !isOpenRef.current ||
+          !getCurrentFrame()
+        ) {
+          stream.getTracks().forEach((track) => track.stop());
+          return null;
+        }
+        mediaStreamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        setStatus("preview");
+        startRenderLoop();
+        return stream;
+      })
+      .catch((error) => {
+        if (requestId === previewRequestIdRef.current && isOpenRef.current) {
+          excalidrawAPI.setToast({
+            message:
+              error instanceof Error
+                ? `Camera or microphone unavailable: ${error.message}`
+                : "Camera or microphone unavailable.",
+          });
+        }
+        return null;
       });
-      mediaStreamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+    previewPromiseRef.current = request;
+    try {
+      return await request;
+    } finally {
+      if (previewPromiseRef.current === request) {
+        previewPromiseRef.current = null;
       }
-      setStatus("preview");
-      startRenderLoop();
-      return stream;
-    } catch (error) {
-      excalidrawAPI.setToast({
-        message:
-          error instanceof Error
-            ? `Camera or microphone unavailable: ${error.message}`
-            : "Camera or microphone unavailable.",
-      });
-      return null;
     }
   };
 
   const startRecording = async () => {
+    if (recordingStartPendingRef.current || recorderRef.current) {
+      return;
+    }
     const frame = getCurrentFrame();
     if (!frame || typeof MediaRecorder === "undefined") {
       excalidrawAPI.setToast({ message: "Recording is unavailable here." });
       return;
     }
-    const mediaStream = await startPreview();
-    if (!mediaStream) {
-      return;
-    }
-
-    if (recordingUrl) {
-      URL.revokeObjectURL(recordingUrl);
-      setRecordingUrl(null);
-    }
-    const dimensions = getRecordingDimensions(frame);
-    const captureCanvas =
-      captureCanvasRef.current || document.createElement("canvas");
-    captureCanvas.width = dimensions.width;
-    captureCanvas.height = dimensions.height;
-    captureCanvasRef.current = captureCanvas;
-    drawRecordingFrame();
-
-    if (typeof captureCanvas.captureStream !== "function") {
-      excalidrawAPI.setToast({
-        message: "Frame recording is not supported by this browser.",
-      });
-      return;
-    }
-    const canvasStream = captureCanvas.captureStream(30);
-    const recordingStream = new MediaStream([
-      ...canvasStream.getVideoTracks(),
-      ...mediaStream.getAudioTracks(),
-    ]);
-    recordingStreamRef.current = recordingStream;
-    chunksRef.current = [];
-    const mimeType = getRecorderMimeType();
-    if (!mimeType.includes("mp4")) {
-      excalidrawAPI.setToast({
-        message: "Native MP4 is unavailable in this browser. Using WebM.",
-      });
-    }
-    const recorder = new MediaRecorder(
-      recordingStream,
-      mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined,
-    );
-    recorderRef.current = recorder;
-    recorder.ondataavailable = (event) => {
-      if (event.data.size) {
-        chunksRef.current.push(event.data);
+    recordingStartPendingRef.current = true;
+    try {
+      const mediaStream = await startPreview();
+      if (!mediaStream || !getCurrentFrame()) {
+        return;
       }
-    };
-    recorder.onerror = () => {
-      excalidrawAPI.setToast({ message: "Recording failed." });
-    };
-    recorder.onstop = () => {
-      if (recordingStartedAtRef.current !== null) {
-        recordedSecondsRef.current +=
-          (Date.now() - recordingStartedAtRef.current) / 1000;
-        recordingStartedAtRef.current = null;
-        setElapsedSeconds(recordedSecondsRef.current);
+
+      if (recordingUrl) {
+        URL.revokeObjectURL(recordingUrl);
+        setRecordingUrl(null);
       }
-      const blob = new Blob(chunksRef.current, {
-        type: recorder.mimeType || "video/webm",
-      });
-      setRecordingExtension(recorder.mimeType.includes("mp4") ? "mp4" : "webm");
-      setRecordingUrl(URL.createObjectURL(blob));
-      recordingStream.getTracks().forEach((track) => track.stop());
-      recordingStreamRef.current = null;
-      recorderRef.current = null;
-      setStatus(mediaStreamRef.current ? "preview" : "idle");
-    };
-    recordedSecondsRef.current = 0;
-    recordingStartedAtRef.current = Date.now();
-    setElapsedSeconds(0);
-    recorder.start(1000);
-    setStatus("recording");
+      const dimensions = getRecordingDimensions(frame);
+      const captureCanvas =
+        captureCanvasRef.current || document.createElement("canvas");
+      captureCanvas.width = dimensions.width;
+      captureCanvas.height = dimensions.height;
+      captureCanvasRef.current = captureCanvas;
+      drawRecordingFrame();
+
+      if (typeof captureCanvas.captureStream !== "function") {
+        excalidrawAPI.setToast({
+          message: "Frame recording is not supported by this browser.",
+        });
+        return;
+      }
+      const canvasStream = captureCanvas.captureStream(30);
+      const recordingStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...mediaStream.getAudioTracks(),
+      ]);
+      recordingStreamRef.current = recordingStream;
+      chunksRef.current = [];
+      const mimeType = getRecorderMimeType();
+      if (!mimeType.includes("mp4")) {
+        excalidrawAPI.setToast({
+          message: "Native MP4 is unavailable in this browser. Using WebM.",
+        });
+      }
+      const recorder = new MediaRecorder(
+        recordingStream,
+        mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined,
+      );
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) {
+          chunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        excalidrawAPI.setToast({ message: "Recording failed." });
+      };
+      recorder.onstop = () => {
+        if (recordingStartedAtRef.current !== null) {
+          recordedSecondsRef.current +=
+            (Date.now() - recordingStartedAtRef.current) / 1000;
+          recordingStartedAtRef.current = null;
+          setElapsedSeconds(recordedSecondsRef.current);
+        }
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "video/webm",
+        });
+        setRecordingExtension(
+          recorder.mimeType.includes("mp4") ? "mp4" : "webm",
+        );
+        setRecordingUrl(URL.createObjectURL(blob));
+        recordingStream.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+        recorderRef.current = null;
+        setStatus(mediaStreamRef.current ? "preview" : "idle");
+      };
+      recordedSecondsRef.current = 0;
+      recordingStartedAtRef.current = Date.now();
+      setElapsedSeconds(0);
+      recorder.start(1000);
+      setStatus("recording");
+    } finally {
+      recordingStartPendingRef.current = false;
+    }
   };
 
   const pauseOrResume = () => {
@@ -532,6 +591,9 @@ export const FrameRecorder = ({
   };
 
   const stopPreview = () => {
+    previewRequestIdRef.current += 1;
+    previewPromiseRef.current = null;
+    recordingStartPendingRef.current = false;
     stopRecording();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
@@ -544,6 +606,7 @@ export const FrameRecorder = ({
     setElapsedSeconds(0);
     setStatus("idle");
   };
+  stopPreviewRef.current = stopPreview;
 
   const closeRecorder = () => {
     stopPreview();
@@ -608,6 +671,46 @@ export const FrameRecorder = ({
       cameraPosition: cameraPositionRef.current,
     }));
   };
+
+  useEffect(() => {
+    return sceneLifecycle.subscribe((snapshot) => {
+      if (!isOpenRef.current) {
+        return;
+      }
+
+      const nextFrames = sortFramesForPlayback(
+        snapshot.elements.filter(
+          (element): element is NonDeleted<ExcalidrawFrameElement> =>
+            !element.isDeleted && isFrameElement(element),
+        ),
+      );
+      const currentFrameId = currentFrameIdRef.current;
+      if (currentFrameId && !snapshot.activeElementIds.has(currentFrameId)) {
+        const hadActiveMedia =
+          statusRef.current !== "idle" || previewPromiseRef.current !== null;
+        stopPreviewRef.current();
+        if (hadActiveMedia) {
+          excalidrawAPI.setToast({
+            message: "Recording stopped because the current frame was removed.",
+          });
+        }
+        currentFrameIdRef.current = nextFrames[0]?.id || null;
+        setCurrentIndex(0);
+        if (!nextFrames.length) {
+          onCloseRef.current();
+        }
+      }
+
+      setFrames((previousFrames) => {
+        const didFrameListChange =
+          previousFrames.length !== nextFrames.length ||
+          previousFrames.some(
+            (frame, index) => frame.id !== nextFrames[index]?.id,
+          );
+        return didFrameListChange ? nextFrames : previousFrames;
+      });
+    });
+  }, [excalidrawAPI, sceneLifecycle]);
 
   useEffect(() => {
     if (status !== "recording") {

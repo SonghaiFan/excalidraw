@@ -72,6 +72,7 @@ import type { ResolvablePromise } from "@excalidraw/common/utils";
 
 import CustomStats from "./CustomStats";
 import { FrameRecorder } from "./frame-recorder";
+import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -207,12 +208,14 @@ const clampFrameDimension = (value: string, fallback: number) =>
 
 const AICanvasPrompt = ({
   excalidrawAPI,
+  sceneLifecycle,
   theme,
   isOpen,
   onOpen,
   onClose,
 }: {
   excalidrawAPI: ExcalidrawImperativeAPI;
+  sceneLifecycle: FrankSceneLifecycle;
   theme: AppState["theme"];
   isOpen: boolean;
   onOpen: () => void;
@@ -230,11 +233,65 @@ const AICanvasPrompt = ({
   });
   const messagesRef = useRef<AIMessage[]>([]);
   const nextCardPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const activeRequestRef = useRef<{
+    controller: AbortController;
+    initialElementIds: ReadonlySet<string>;
+    renderer: {
+      cancel: () => void;
+      hasRendered: () => boolean;
+      isSceneIntact: (activeElementIds: ReadonlySet<string>) => boolean;
+    };
+  } | null>(null);
+
+  const cancelActiveRequest = () => {
+    const activeRequest = activeRequestRef.current;
+    if (!activeRequest) {
+      return;
+    }
+    activeRequest.renderer.cancel();
+    activeRequest.controller.abort();
+    activeRequestRef.current = null;
+  };
 
   const closePrompt = () => {
+    cancelActiveRequest();
     setIsEditingApiKey(false);
     onClose();
   };
+
+  useEffect(() => {
+    return sceneLifecycle.subscribe((snapshot) => {
+      if (
+        snapshot.transition === "clear" ||
+        snapshot.transition === "replace"
+      ) {
+        messagesRef.current = [];
+        nextCardPositionRef.current = null;
+      }
+
+      const activeRequest = activeRequestRef.current;
+      if (!activeRequest) {
+        return;
+      }
+
+      const sceneChangedBeforeFirstRender =
+        !activeRequest.renderer.hasRendered() &&
+        (snapshot.activeElementIds.size !==
+          activeRequest.initialElementIds.size ||
+          [...snapshot.activeElementIds].some(
+            (id) => !activeRequest.initialElementIds.has(id),
+          ));
+      if (
+        sceneChangedBeforeFirstRender ||
+        !activeRequest.renderer.isSceneIntact(snapshot.activeElementIds)
+      ) {
+        cancelActiveRequest();
+        setIsLoading(false);
+      }
+    });
+  }, [sceneLifecycle]);
+
+  useEffect(() => () => cancelActiveRequest(), []);
 
   const frameSize =
     framePreset === "custom"
@@ -285,6 +342,7 @@ const AICanvasPrompt = ({
     let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
     let ownedIds = new Set<string>();
     let didFocus = false;
+    let cancelled = false;
     const responseId = crypto.randomUUID();
     const streamMarkdown = createIncrementalCanvasMarkdown();
     type RenderedCanvasBlock = {
@@ -302,14 +360,46 @@ const AICanvasPrompt = ({
         | typeof CaptureUpdateAction.EVENTUALLY
         | typeof CaptureUpdateAction.IMMEDIATELY,
     ) => {
-      const sceneElements = excalidrawAPI
-        .getSceneElements()
-        .filter((element) => !ownedIds.has(element.id));
-      ownedIds = new Set(elements.map((element) => element.id));
+      if (cancelled || excalidrawAPI.isDestroyed) {
+        return false;
+      }
+
+      const sceneElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      if (
+        ownedIds.size > 0 &&
+        [...ownedIds].some((id) => {
+          const element = sceneElements.find((element) => element.id === id);
+          return !element || element.isDeleted;
+        })
+      ) {
+        cancelled = true;
+        return false;
+      }
+
+      const nextOwnedIds = new Set(elements.map((element) => element.id));
+      const retainedElements = sceneElements.filter(
+        (element) => !ownedIds.has(element.id),
+      );
+      const removedElements = sceneElements
+        .filter(
+          (element) =>
+            ownedIds.has(element.id) && !nextOwnedIds.has(element.id),
+        )
+        .map((element) =>
+          element.isDeleted
+            ? element
+            : newElementWith(element, { isDeleted: true }),
+        );
+      ownedIds = nextOwnedIds;
       excalidrawAPI.updateScene({
-        elements: [...sceneElements, ...elements] as OrderedExcalidrawElement[],
+        elements: [
+          ...retainedElements,
+          ...removedElements,
+          ...elements,
+        ] as OrderedExcalidrawElement[],
         captureUpdate,
       });
+      return true;
     };
 
     const layoutBlocks = (
@@ -408,7 +498,9 @@ const AICanvasPrompt = ({
 
       renderedBlocks = nextBlocks;
       frames = nextFrames;
-      replaceResponseElements(allElements, captureUpdate);
+      if (!replaceResponseElements(allElements, captureUpdate)) {
+        return null;
+      }
 
       if (!didFocus && frames[0]) {
         didFocus = true;
@@ -424,14 +516,23 @@ const AICanvasPrompt = ({
     };
 
     const renderStreaming = () => {
-      layoutBlocks(streamMarkdown.snapshot(), CaptureUpdateAction.EVENTUALLY);
+      return layoutBlocks(
+        streamMarkdown.snapshot(),
+        CaptureUpdateAction.EVENTUALLY,
+      );
     };
 
     const pushStreamingDelta = (delta: string) => {
+      if (cancelled) {
+        return;
+      }
       streamMarkdown.push(delta);
     };
 
     const finalize = async (answer: string) => {
+      if (cancelled) {
+        return;
+      }
       const document = parseCanvasMarkdown(answer);
       const finalBlocks = document.blocks.map((block, id) => ({
         id,
@@ -439,6 +540,9 @@ const AICanvasPrompt = ({
         complete: true,
       }));
       const layout = layoutBlocks(finalBlocks, CaptureUpdateAction.IMMEDIATELY);
+      if (!layout) {
+        return;
+      }
 
       if (document.mermaid) {
         try {
@@ -446,6 +550,9 @@ const AICanvasPrompt = ({
             "@excalidraw/mermaid-to-excalidraw"
           );
           const result = await parseMermaidToExcalidraw(document.mermaid);
+          if (cancelled || excalidrawAPI.isDestroyed) {
+            return;
+          }
           const diagram = convertToExcalidrawElements(result.elements);
           const [diagramX, diagramY] = getCommonBounds(diagram);
           const pageIndex = layout.pageCount;
@@ -469,10 +576,14 @@ const AICanvasPrompt = ({
             },
           });
           frames = [...frames, diagramPage.frame];
-          replaceResponseElements(
-            [...layout.elements, ...diagramPage.elements],
-            CaptureUpdateAction.IMMEDIATELY,
-          );
+          if (
+            !replaceResponseElements(
+              [...layout.elements, ...diagramPage.elements],
+              CaptureUpdateAction.IMMEDIATELY,
+            )
+          ) {
+            return;
+          }
           if (result.files) {
             excalidrawAPI.addFiles(Object.values(result.files));
           }
@@ -488,7 +599,19 @@ const AICanvasPrompt = ({
       };
     };
 
-    return { pushStreamingDelta, renderStreaming, finalize };
+    return {
+      pushStreamingDelta,
+      renderStreaming,
+      finalize,
+      cancel: () => {
+        cancelled = true;
+      },
+      hasRendered: () => ownedIds.size > 0,
+      isSceneIntact: (activeElementIds: ReadonlySet<string>) =>
+        !cancelled &&
+        (ownedIds.size === 0 ||
+          [...ownedIds].every((id) => activeElementIds.has(id))),
+    };
   };
 
   const submitPrompt = async () => {
@@ -504,6 +627,13 @@ const AICanvasPrompt = ({
 
     setIsLoading(true);
     const renderer = createResponseRenderer(question, provider);
+    const controller = new AbortController();
+    const activeRequest = {
+      controller,
+      initialElementIds: new Set(sceneLifecycle.getActiveElementIds()),
+      renderer,
+    };
+    activeRequestRef.current = activeRequest;
     let latestAnswer = "";
     let renderTimer: number | null = null;
     let finalized = false;
@@ -528,6 +658,7 @@ const AICanvasPrompt = ({
     try {
       const response = await fetch("/api/ai", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider,
@@ -539,6 +670,9 @@ const AICanvasPrompt = ({
       latestAnswer = answer;
       flushStreamingRender();
       await renderer.finalize(answer);
+      if (controller.signal.aborted) {
+        return;
+      }
       finalized = true;
 
       messagesRef.current = [
@@ -546,8 +680,13 @@ const AICanvasPrompt = ({
         { role: "assistant" as const, content: answer },
       ].slice(-12);
       setPrompt("");
+      setIsLoading(false);
+      activeRequestRef.current = null;
       closePrompt();
     } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
       if (!finalized && latestAnswer.trim()) {
         flushStreamingRender();
         await renderer.finalize(latestAnswer);
@@ -559,7 +698,10 @@ const AICanvasPrompt = ({
       if (renderTimer !== null) {
         window.clearTimeout(renderTimer);
       }
-      setIsLoading(false);
+      if (activeRequestRef.current === activeRequest) {
+        activeRequestRef.current = null;
+        setIsLoading(false);
+      }
     }
   };
 
@@ -754,6 +896,14 @@ const CanvasToolDock = ({
   theme: AppState["theme"];
 }) => {
   const [activeTool, setActiveTool] = useState<CanvasTool>(null);
+  const [sceneLifecycle] = useState(
+    () => new FrankSceneLifecycle(excalidrawAPI),
+  );
+
+  useEffect(() => {
+    sceneLifecycle.start();
+    return () => sceneLifecycle.stop();
+  }, [sceneLifecycle]);
 
   return (
     <div
@@ -762,6 +912,7 @@ const CanvasToolDock = ({
     >
       <AICanvasPrompt
         excalidrawAPI={excalidrawAPI}
+        sceneLifecycle={sceneLifecycle}
         theme={theme}
         isOpen={activeTool === "ai"}
         onOpen={() => setActiveTool("ai")}
@@ -769,6 +920,7 @@ const CanvasToolDock = ({
       />
       <FrameRecorder
         excalidrawAPI={excalidrawAPI}
+        sceneLifecycle={sceneLifecycle}
         theme={theme}
         isOpen={activeTool === "recording"}
         onOpen={() => setActiveTool("recording")}
