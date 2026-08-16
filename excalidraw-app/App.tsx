@@ -1,9 +1,12 @@
 import {
   Excalidraw,
   CaptureUpdateAction,
+  convertToExcalidrawElements,
+  getCommonBounds,
   reconcileElements,
   ExcalidrawAPIProvider,
   useExcalidrawAPI,
+  viewportCoordsToSceneCoords,
 } from "@excalidraw/excalidraw";
 import { trackEvent } from "@excalidraw/excalidraw/analytics";
 import {
@@ -13,6 +16,11 @@ import {
 import { OverwriteConfirmDialog } from "@excalidraw/excalidraw/components/OverwriteConfirm/OverwriteConfirm";
 import { openConfirmModal } from "@excalidraw/excalidraw/components/OverwriteConfirm/OverwriteConfirmState";
 import Trans from "@excalidraw/excalidraw/components/Trans";
+import {
+  ArrowRightIcon,
+  CloseIcon,
+  microphoneIcon,
+} from "@excalidraw/excalidraw/components/icons";
 import {
   APP_NAME,
   EVENT,
@@ -25,7 +33,7 @@ import {
   resolvablePromise,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { t } from "@excalidraw/excalidraw/i18n";
 
@@ -45,7 +53,9 @@ import {
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
 import type {
+  ExcalidrawFrameElement,
   FileId,
+  NonDeleted,
   NonDeletedExcalidrawElement,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
@@ -61,6 +71,7 @@ import type { ResolutionType } from "@excalidraw/common/utility-types";
 import type { ResolvablePromise } from "@excalidraw/common/utils";
 
 import CustomStats from "./CustomStats";
+import { FrameRecorder } from "./frame-recorder";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -96,6 +107,17 @@ import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
+import {
+  createIncrementalCanvasMarkdown,
+  createFormattedCanvasElements,
+  createStreamingCanvasBlockElements,
+  frameCanvasElements,
+  measureCanvasBlockHeight,
+  paginateCanvasBlockHeights,
+  parseCanvasMarkdown,
+  readAIStream,
+  type StreamingCanvasBlock,
+} from "./ai-format";
 
 import "./index.scss";
 
@@ -163,6 +185,598 @@ const shareableLinkConfirmDialog = {
   actionLabel: t("overwriteConfirm.modal.shareableLink.button"),
   color: "danger",
 } as const;
+
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type AIProvider = "deepseek" | "openai";
+
+const AI_FRAME_PRESETS = {
+  portrait: { label: "Portrait · 4:5", width: 1080, height: 1350 },
+  square: { label: "Square · 1:1", width: 1080, height: 1080 },
+  story: { label: "Story · 9:16", width: 1080, height: 1920 },
+  landscape: { label: "Landscape · 16:9", width: 1600, height: 900 },
+} as const;
+
+type AIFramePreset = keyof typeof AI_FRAME_PRESETS | "custom";
+
+const clampFrameDimension = (value: string, fallback: number) =>
+  Math.min(3000, Math.max(480, Number(value) || fallback));
+
+const AICanvasPrompt = ({
+  excalidrawAPI,
+  theme,
+  isOpen,
+  onOpen,
+  onClose,
+}: {
+  excalidrawAPI: ExcalidrawImperativeAPI;
+  theme: AppState["theme"];
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) => {
+  const [provider, setProvider] = useState<AIProvider>("deepseek");
+  const [apiKey, setApiKey] = useState("");
+  const [isEditingApiKey, setIsEditingApiKey] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [framePreset, setFramePreset] = useState<AIFramePreset>("portrait");
+  const [customFrameSize, setCustomFrameSize] = useState({
+    width: "1080",
+    height: "1350",
+  });
+  const messagesRef = useRef<AIMessage[]>([]);
+  const nextCardPositionRef = useRef<{ x: number; y: number } | null>(null);
+
+  const closePrompt = () => {
+    setIsEditingApiKey(false);
+    onClose();
+  };
+
+  const frameSize =
+    framePreset === "custom"
+      ? {
+          width: clampFrameDimension(customFrameSize.width, 1080),
+          height: clampFrameDimension(customFrameSize.height, 1350),
+        }
+      : AI_FRAME_PRESETS[framePreset];
+
+  const createResponseRenderer = (
+    question: string,
+    responseProvider: AIProvider,
+  ) => {
+    const appState = excalidrawAPI.getAppState();
+    const isDark = appState.theme === "dark";
+    const pageWidth = frameSize.width;
+    const pageHeight = frameSize.height;
+    const pagePadding = Math.round(
+      Math.max(36, Math.min(64, pageWidth * 0.05)),
+    );
+    const pageGap = Math.round(pagePadding * 1.5);
+    const rowGap = Math.round(pagePadding * 2);
+    const contentWidth = pageWidth - pagePadding * 2;
+    const zoom = appState.zoom.value;
+    const position =
+      nextCardPositionRef.current ||
+      viewportCoordsToSceneCoords(
+        {
+          clientX:
+            appState.offsetLeft + appState.width / 2 - (pageWidth * zoom) / 2,
+          clientY:
+            appState.offsetTop +
+            appState.height / 2 -
+            Math.min((pageHeight * zoom) / 2, 320),
+        },
+        appState,
+      );
+    const header = createFormattedCanvasElements({
+      markdown: "",
+      question,
+      provider: responseProvider,
+      x: position.x + pagePadding,
+      y: position.y + pagePadding,
+      isDark,
+      width: contentWidth,
+    });
+    let headerElements: NonDeletedExcalidrawElement[] = [...header.elements];
+    let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
+    let ownedIds = new Set<string>();
+    let didFocus = false;
+    const responseId = crypto.randomUUID();
+    const streamMarkdown = createIncrementalCanvasMarkdown();
+    type RenderedCanvasBlock = {
+      signature: string;
+      x: number;
+      y: number;
+      height: number;
+      elements: NonDeletedExcalidrawElement[];
+    };
+    let renderedBlocks = new Map<number, RenderedCanvasBlock>();
+
+    const replaceResponseElements = (
+      elements: readonly NonDeletedExcalidrawElement[],
+      captureUpdate:
+        | typeof CaptureUpdateAction.EVENTUALLY
+        | typeof CaptureUpdateAction.IMMEDIATELY,
+    ) => {
+      const sceneElements = excalidrawAPI
+        .getSceneElements()
+        .filter((element) => !ownedIds.has(element.id));
+      ownedIds = new Set(elements.map((element) => element.id));
+      excalidrawAPI.updateScene({
+        elements: [...sceneElements, ...elements] as OrderedExcalidrawElement[],
+        captureUpdate,
+      });
+    };
+
+    const layoutBlocks = (
+      blocks: readonly StreamingCanvasBlock[],
+      captureUpdate:
+        | typeof CaptureUpdateAction.EVENTUALLY
+        | typeof CaptureUpdateAction.IMMEDIATELY,
+    ) => {
+      const contentHeight = pageHeight - pagePadding * 2;
+      const heights = blocks.map(({ block }) =>
+        measureCanvasBlockHeight({ block, width: contentWidth, isDark }),
+      );
+      const pages = paginateCanvasBlockHeights({
+        heights,
+        firstPageHeight: contentHeight - header.height,
+        pageHeight: contentHeight,
+      });
+      const nextBlocks = new Map(renderedBlocks);
+      nextBlocks.clear();
+      const nextFrames: NonDeleted<ExcalidrawFrameElement>[] = [];
+      const allElements: NonDeletedExcalidrawElement[] = [];
+
+      for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+        const pageX = position.x + pageIndex * (pageWidth + pageGap);
+        const pageY = position.y;
+        let cursorY =
+          pageY + pagePadding + (pageIndex === 0 ? header.height : 0);
+        const blockEntries: {
+          id: number;
+          section: RenderedCanvasBlock;
+        }[] = [];
+        for (const blockIndex of pages[pageIndex]) {
+          const { id, block } = blocks[blockIndex];
+          const signature = JSON.stringify(block);
+          const blockX = pageX + pagePadding;
+          const cached = renderedBlocks.get(id);
+          const section =
+            cached &&
+            cached.signature === signature &&
+            cached.x === blockX &&
+            cached.y === cursorY
+              ? cached
+              : {
+                  signature,
+                  x: blockX,
+                  y: cursorY,
+                  ...createStreamingCanvasBlockElements({
+                    block,
+                    idPrefix: `${responseId}-block-${id}`,
+                    x: blockX,
+                    y: cursorY,
+                    width: contentWidth,
+                    isDark,
+                    previous: cached?.elements,
+                  }),
+                };
+          cursorY += section.height;
+          blockEntries.push({ id, section });
+        }
+        const pageElements = [
+          ...(pageIndex === 0 ? headerElements : []),
+          ...blockEntries.flatMap(({ section }) => section.elements),
+        ];
+        const framed = frameCanvasElements({
+          elements: pageElements,
+          name: `AI / ${question.slice(0, 42)} / PAGE ${pageIndex + 1} OF ${
+            pages.length
+          }`,
+          isDark,
+          frame: frames[pageIndex],
+          bounds: {
+            x: pageX,
+            y: pageY,
+            width: pageWidth,
+            height: pageHeight,
+          },
+        });
+        nextFrames.push(framed.frame);
+        allElements.push(...framed.elements);
+
+        const content = framed.elements.slice(0, -1);
+        let offset = 0;
+        if (pageIndex === 0) {
+          headerElements = content.slice(0, headerElements.length);
+          offset = headerElements.length;
+        }
+        for (const { id, section } of blockEntries) {
+          const elements = content.slice(
+            offset,
+            offset + section.elements.length,
+          );
+          nextBlocks.set(id, { ...section, elements });
+          offset += section.elements.length;
+        }
+      }
+
+      renderedBlocks = nextBlocks;
+      frames = nextFrames;
+      replaceResponseElements(allElements, captureUpdate);
+
+      if (!didFocus && frames[0]) {
+        didFocus = true;
+        excalidrawAPI.setViewport({
+          target: [frames[0]],
+          fit: "scale-down",
+          animation: true,
+          offsets: { ui: true },
+        });
+      }
+
+      return { elements: allElements, pageCount: pages.length };
+    };
+
+    const renderStreaming = () => {
+      layoutBlocks(streamMarkdown.snapshot(), CaptureUpdateAction.EVENTUALLY);
+    };
+
+    const pushStreamingDelta = (delta: string) => {
+      streamMarkdown.push(delta);
+    };
+
+    const finalize = async (answer: string) => {
+      const document = parseCanvasMarkdown(answer);
+      const finalBlocks = document.blocks.map((block, id) => ({
+        id,
+        block,
+        complete: true,
+      }));
+      const layout = layoutBlocks(finalBlocks, CaptureUpdateAction.IMMEDIATELY);
+
+      if (document.mermaid) {
+        try {
+          const { parseMermaidToExcalidraw } = await import(
+            "@excalidraw/mermaid-to-excalidraw"
+          );
+          const result = await parseMermaidToExcalidraw(document.mermaid);
+          const diagram = convertToExcalidrawElements(result.elements);
+          const [diagramX, diagramY] = getCommonBounds(diagram);
+          const pageIndex = layout.pageCount;
+          const pageX = position.x + pageIndex * (pageWidth + pageGap);
+          const placedDiagram = diagram.map((element) =>
+            newElementWith(element, {
+              x: element.x + pageX + pagePadding - diagramX,
+              y: element.y + position.y + pagePadding - diagramY,
+            }),
+          );
+          const diagramPage = frameCanvasElements({
+            elements: placedDiagram,
+            name: `AI / ${question.slice(0, 42)} / DIAGRAM`,
+            isDark,
+            frame: frames[pageIndex],
+            bounds: {
+              x: pageX,
+              y: position.y,
+              width: pageWidth,
+              height: pageHeight,
+            },
+          });
+          frames = [...frames, diagramPage.frame];
+          replaceResponseElements(
+            [...layout.elements, ...diagramPage.elements],
+            CaptureUpdateAction.IMMEDIATELY,
+          );
+          if (result.files) {
+            excalidrawAPI.addFiles(Object.values(result.files));
+          }
+        } catch {
+          excalidrawAPI.setToast({
+            message: "Text added. The optional diagram could not be drawn.",
+          });
+        }
+      }
+      nextCardPositionRef.current = {
+        x: position.x,
+        y: position.y + pageHeight + rowGap,
+      };
+    };
+
+    return { pushStreamingDelta, renderStreaming, finalize };
+  };
+
+  const submitPrompt = async () => {
+    const question = prompt.trim();
+    if (!question || isLoading || (provider === "deepseek" && !apiKey.trim())) {
+      return;
+    }
+
+    const messages: AIMessage[] = [
+      ...messagesRef.current,
+      { role: "user" as const, content: question },
+    ].slice(-12);
+
+    setIsLoading(true);
+    const renderer = createResponseRenderer(question, provider);
+    let latestAnswer = "";
+    let renderTimer: number | null = null;
+    let finalized = false;
+
+    const flushStreamingRender = () => {
+      if (renderTimer !== null) {
+        window.clearTimeout(renderTimer);
+        renderTimer = null;
+      }
+      if (latestAnswer) {
+        renderer.renderStreaming();
+      }
+    };
+    const scheduleStreamingRender = (answer: string, delta: string) => {
+      latestAnswer = answer;
+      renderer.pushStreamingDelta(delta);
+      if (renderTimer === null) {
+        renderTimer = window.setTimeout(flushStreamingRender, 40);
+      }
+    };
+
+    try {
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          apiKey: apiKey.trim() || undefined,
+          messages,
+        }),
+      });
+      const answer = await readAIStream(response, scheduleStreamingRender);
+      latestAnswer = answer;
+      flushStreamingRender();
+      await renderer.finalize(answer);
+      finalized = true;
+
+      messagesRef.current = [
+        ...messages,
+        { role: "assistant" as const, content: answer },
+      ].slice(-12);
+      setPrompt("");
+      closePrompt();
+    } catch (error) {
+      if (!finalized && latestAnswer.trim()) {
+        flushStreamingRender();
+        await renderer.finalize(latestAnswer);
+      }
+      excalidrawAPI.setToast({
+        message: error instanceof Error ? error.message : "AI request failed",
+      });
+    } finally {
+      if (renderTimer !== null) {
+        window.clearTimeout(renderTimer);
+      }
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className={`frank-ai frank-ai--${theme}`}>
+      {isOpen ? (
+        <div
+          className="frank-ai__panel"
+          role="dialog"
+          aria-label="Ask Frank AI"
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              closePrompt();
+            }
+          }}
+        >
+          <div className="frank-ai__composer">
+            <label className="visually-hidden" htmlFor="frank-ai-prompt">
+              Ask Frank on canvas
+            </label>
+            <textarea
+              id="frank-ai-prompt"
+              autoFocus
+              autoComplete="off"
+              data-form-type="other"
+              data-1p-ignore="true"
+              value={prompt}
+              maxLength={8000}
+              rows={2}
+              placeholder="Ask Frank anything…"
+              onChange={(event) => setPrompt(event.target.value)}
+            />
+            <button
+              className="frank-ai__voice"
+              type="button"
+              aria-label="Voice input coming soon"
+              title="Voice input coming soon"
+              disabled
+            >
+              {microphoneIcon}
+            </button>
+            <button
+              className="frank-ai__send"
+              type="button"
+              aria-label={isLoading ? "Frank is answering" : "Ask Frank"}
+              title="Ask Frank"
+              disabled={
+                !prompt.trim() ||
+                isLoading ||
+                (provider === "deepseek" && !apiKey.trim())
+              }
+              onClick={submitPrompt}
+            >
+              {isLoading ? <span aria-hidden="true">···</span> : ArrowRightIcon}
+            </button>
+          </div>
+          <div className="frank-ai__controls">
+            <select
+              aria-label="Model provider"
+              value={provider}
+              onChange={(event) =>
+                setProvider(event.target.value as AIProvider)
+              }
+            >
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+            </select>
+            <div className="frank-ai__format">
+              <select
+                aria-label="Frame format"
+                value={framePreset}
+                onChange={(event) =>
+                  setFramePreset(event.target.value as AIFramePreset)
+                }
+              >
+                {Object.entries(AI_FRAME_PRESETS).map(([value, preset]) => (
+                  <option key={value} value={value}>
+                    {preset.label} · {preset.width}×{preset.height}
+                  </option>
+                ))}
+                <option value="custom">Custom size</option>
+              </select>
+              {framePreset === "custom" ? (
+                <div className="frank-ai__dimensions">
+                  <input
+                    type="number"
+                    min="480"
+                    max="3000"
+                    step="10"
+                    aria-label="Frame width"
+                    value={customFrameSize.width}
+                    onChange={(event) =>
+                      setCustomFrameSize((current) => ({
+                        ...current,
+                        width: event.target.value,
+                      }))
+                    }
+                  />
+                  <span aria-hidden="true">×</span>
+                  <input
+                    type="number"
+                    min="480"
+                    max="3000"
+                    step="10"
+                    aria-label="Frame height"
+                    value={customFrameSize.height}
+                    onChange={(event) =>
+                      setCustomFrameSize((current) => ({
+                        ...current,
+                        height: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              ) : null}
+            </div>
+            {isEditingApiKey ? (
+              <div className="frank-ai__api-key-editor">
+                <input
+                  type="search"
+                  aria-label="Provider access token"
+                  autoFocus
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-protonpass-ignore="true"
+                  spellCheck={false}
+                  value={apiKey}
+                  placeholder="Paste provider token"
+                  onChange={(event) => setApiKey(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      setIsEditingApiKey(false);
+                    }
+                  }}
+                />
+                <button type="button" onClick={() => setIsEditingApiKey(false)}>
+                  Done
+                </button>
+              </div>
+            ) : (
+              <button
+                className="frank-ai__api-key-trigger"
+                type="button"
+                onClick={() => setIsEditingApiKey(true)}
+              >
+                {apiKey ? `API key · ${apiKey.slice(-4)}` : "Add API key"}
+              </button>
+            )}
+            <span>
+              {isLoading ? "Writing on canvas…" : "Key stays in this session"}
+            </span>
+            <button
+              className="frank-ai__close"
+              type="button"
+              aria-label="Close AI input"
+              onClick={closePrompt}
+            >
+              {CloseIcon}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <button
+        className="frank-ai__trigger frank-dock__trigger"
+        type="button"
+        aria-label="AI"
+        aria-expanded={isOpen}
+        aria-pressed={isOpen}
+        onClick={isOpen ? closePrompt : onOpen}
+      >
+        <span className="frank-dock__index" aria-hidden="true">
+          01
+        </span>
+        <span>AI</span>
+      </button>
+    </div>
+  );
+};
+
+type CanvasTool = "ai" | "recording" | null;
+
+const CanvasToolDock = ({
+  excalidrawAPI,
+  theme,
+}: {
+  excalidrawAPI: ExcalidrawImperativeAPI;
+  theme: AppState["theme"];
+}) => {
+  const [activeTool, setActiveTool] = useState<CanvasTool>(null);
+
+  return (
+    <div
+      className={`frank-dock frank-dock--${theme}`}
+      aria-label="Canvas tools"
+    >
+      <AICanvasPrompt
+        excalidrawAPI={excalidrawAPI}
+        theme={theme}
+        isOpen={activeTool === "ai"}
+        onOpen={() => setActiveTool("ai")}
+        onClose={() => setActiveTool(null)}
+      />
+      <FrameRecorder
+        excalidrawAPI={excalidrawAPI}
+        theme={theme}
+        isOpen={activeTool === "recording"}
+        onOpen={() => setActiveTool("recording")}
+        onClose={() => setActiveTool(null)}
+      />
+    </div>
+  );
+};
 
 const initializeScene = async (opts: {
   collabAPI: CollabAPI | null;
@@ -786,6 +1400,9 @@ const ExcalidrawWrapper = () => {
           ]}
         />
       </Excalidraw>
+      {excalidrawAPI ? (
+        <CanvasToolDock excalidrawAPI={excalidrawAPI} theme={editorTheme} />
+      ) : null}
     </div>
   );
 };

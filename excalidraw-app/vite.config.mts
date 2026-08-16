@@ -1,5 +1,5 @@
 import path from "path";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import svgrPlugin from "vite-plugin-svgr";
 import { ViteEjsPlugin } from "vite-plugin-ejs";
@@ -8,9 +8,215 @@ import checker from "vite-plugin-checker";
 import { createHtmlPlugin } from "vite-plugin-html";
 import Sitemap from "vite-plugin-sitemap";
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
+
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type AIProvider = "openai" | "deepseek";
+
+const frankAIPlugin = (
+  openAIKey?: string,
+  openAIModel = "gpt-5.4-mini",
+): Plugin => ({
+  name: "frank-ai",
+  configureServer(server) {
+    server.middlewares.use("/api/ai", async (request, response) => {
+      response.setHeader("Content-Type", "application/json; charset=utf-8");
+
+      if (request.method !== "POST") {
+        response.statusCode = 405;
+        response.end(JSON.stringify({ error: "Method not allowed" }));
+        return;
+      }
+
+      try {
+        let rawBody = "";
+        for await (const chunk of request) {
+          rawBody += chunk;
+          if (rawBody.length > 64_000) {
+            throw new Error("Request is too large");
+          }
+        }
+
+        const body = JSON.parse(rawBody) as {
+          provider?: AIProvider;
+          apiKey?: string;
+          messages?: AIMessage[];
+        };
+        const provider = body.provider || "openai";
+        const messages = body.messages;
+        const apiKey = body.apiKey?.trim() || openAIKey;
+        const isValid =
+          (provider === "openai" || provider === "deepseek") &&
+          typeof apiKey === "string" &&
+          apiKey.length >= 20 &&
+          apiKey.length <= 256 &&
+          !/\s/.test(apiKey) &&
+          Array.isArray(messages) &&
+          messages.length > 0 &&
+          messages.length <= 12 &&
+          messages.every(
+            (message) =>
+              (message.role === "user" || message.role === "assistant") &&
+              typeof message.content === "string" &&
+              message.content.trim().length > 0 &&
+              message.content.length <= 8_000,
+          ) &&
+          messages.at(-1)?.role === "user";
+
+        if (!isValid) {
+          response.statusCode = 400;
+          response.end(JSON.stringify({ error: "Invalid AI configuration" }));
+          return;
+        }
+
+        const isDeepSeek = provider === "deepseek";
+        const providerResponse = await fetch(
+          isDeepSeek
+            ? "https://api.deepseek.com/chat/completions"
+            : "https://api.openai.com/v1/responses",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(
+              isDeepSeek
+                ? {
+                    model: "deepseek-v4-flash",
+                    messages: [
+                      {
+                        role: "system",
+                        content:
+                          "You are the thinking and drawing partner inside Frank Canvas. Return a complete, well-structured Markdown answer using headings, paragraphs, lists, quotes, code blocks, and compact Markdown tables when useful. If a visual diagram materially improves the answer, include one simple fenced mermaid flowchart after the explanation. Never wrap the whole answer in a code fence.",
+                      },
+                      ...messages,
+                    ],
+                    max_tokens: 2400,
+                    stream: true,
+                  }
+                : {
+                    model: openAIModel,
+                    store: false,
+                    instructions:
+                      "You are the thinking and drawing partner inside Frank Canvas. Return a complete, well-structured Markdown answer using headings, paragraphs, lists, quotes, code blocks, and compact Markdown tables when useful. If a visual diagram materially improves the answer, include one simple fenced mermaid flowchart after the explanation. Never wrap the whole answer in a code fence.",
+                    input: messages,
+                    max_output_tokens: 2400,
+                    stream: true,
+                  },
+            ),
+            signal: AbortSignal.timeout(60_000),
+          },
+        );
+
+        if (!providerResponse.ok) {
+          const data = (await providerResponse.json().catch(() => null)) as {
+            error?: { message?: string };
+          } | null;
+          console.error(`${provider} request failed:`, data?.error?.message);
+          response.statusCode = 502;
+          response.end(JSON.stringify({ error: `${provider} request failed` }));
+          return;
+        }
+
+        if (!providerResponse.body) {
+          throw new Error("AI response stream is unavailable");
+        }
+
+        response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("Connection", "keep-alive");
+        response.flushHeaders();
+
+        const reader = providerResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finished = false;
+
+        const writeEvent = (data: object | "[DONE]") => {
+          response.write(
+            `data: ${data === "[DONE]" ? data : JSON.stringify(data)}\n\n`,
+          );
+        };
+        const processLine = (line: string) => {
+          const value = line.startsWith("data:") ? line.slice(5).trim() : "";
+          if (!value) {
+            return;
+          }
+          if (value === "[DONE]") {
+            finished = true;
+            return;
+          }
+
+          const event = JSON.parse(value) as {
+            type?: string;
+            delta?: string;
+            error?: { message?: string };
+            response?: { error?: { message?: string } };
+            choices?: Array<{ delta?: { content?: string } }>;
+          };
+          if (isDeepSeek) {
+            const delta = event.choices?.[0]?.delta?.content;
+            if (delta) {
+              writeEvent({ delta });
+            }
+          } else if (
+            event.type === "response.output_text.delta" &&
+            event.delta
+          ) {
+            writeEvent({ delta: event.delta });
+          } else if (event.type === "response.completed") {
+            finished = true;
+          } else if (event.type === "response.failed") {
+            throw new Error(
+              event.response?.error?.message ||
+                event.error?.message ||
+                "OpenAI response failed",
+            );
+          }
+        };
+
+        while (!finished) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          lines.forEach((line) => processLine(line.replace(/\r$/, "")));
+        }
+        buffer += decoder.decode();
+        if (!finished && buffer.trim()) {
+          processLine(buffer.replace(/\r$/, ""));
+        }
+        writeEvent("[DONE]");
+        response.end();
+      } catch (error) {
+        console.error("Frank AI error:", error);
+        if (response.headersSent) {
+          response.write(
+            `data: ${JSON.stringify({
+              error: "AI stream was interrupted",
+            })}\n\n`,
+          );
+          response.end();
+        } else {
+          response.statusCode = 500;
+          response.end(JSON.stringify({ error: "Unable to answer right now" }));
+        }
+      }
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
+  const serverEnv = loadEnv(mode, `../`, "OPENAI_");
   // https://vitejs.dev/config/
   return {
     server: {
@@ -132,6 +338,9 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 0,
     },
     plugins: [
+      // ponytail: keep the API key in the local Vite server; extract this
+      // endpoint only when Frank Canvas gets a production backend.
+      frankAIPlugin(serverEnv.OPENAI_API_KEY, serverEnv.OPENAI_MODEL),
       Sitemap({
         hostname: "https://excalidraw.com",
         outDir: "build",
