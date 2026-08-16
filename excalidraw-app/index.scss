@@ -86,45 +86,414 @@
   }
 }
 
-.plus-banner {
-  display: flex;
-  justify-content: center;
-  cursor: pointer;
-  align-items: center;
-  border: 1px solid var(--color-primary);
-  padding: 0.5rem 0.875rem;
-  border-radius: var(--border-radius-lg);
-  background-color: var(--island-bg-color);
-  text-decoration: none !important;
+// frank canvas — a quiet, functional interface built around IKB blue.
+// The canvas stays neutral; color appears only where it carries meaning.
 
-  font-family: var(--ui-font);
-  font-size: 0.8333rem;
-  box-sizing: border-box;
-  height: var(--lg-button-size);
+.excalidraw-app {
+  --frank-blue: #002fa7;
+  --frank-blue-dark: #00247f;
+  --frank-blue-soft: #e7edff;
+  --frank-paper: #fbfbf8;
+  --frank-ink: #171717;
+  --frank-rule: #d8d8d2;
+  --frank-white: #ffffff;
 
-  border: none;
-  box-shadow: 0 0 0 1px var(--color-surface-lowest);
-  background-color: var(--color-surface-low);
-  color: var(--button-color, var(--color-on-surface)) !important;
+  .excalidraw {
+    --color-primary: var(--frank-blue);
+    --color-primary-darker: var(--frank-blue-dark);
+    --color-primary-darkest: #001d68;
+    --color-primary-hover: #00288f;
+    --color-primary-light: var(--frank-blue-soft);
+    --color-primary-light-darker: #cbd9ff;
+    --color-selection: var(--frank-blue);
+    --color-brand-hover: var(--frank-blue);
+    --color-brand-active: var(--frank-blue-dark);
+    --color-on-primary-container: var(--frank-blue);
+    --color-surface-primary-container: var(--frank-blue-soft);
+    --color-logo-icon: var(--frank-blue);
+    --color-logo-text: var(--frank-blue-dark);
+    --focus-highlight-color: #8eabff;
+    --link-color: var(--frank-blue);
+    --link-color-hover: var(--frank-blue-dark);
+    --border-radius-md: 0.2rem;
+    --border-radius-lg: 0.25rem;
 
-  &:active {
-    box-shadow: 0 0 0 1px var(--color-brand-active);
+    .Island {
+      border: 1px solid var(--frank-rule);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
+    }
+
+    .App-toolbar-container .Island {
+      --icon-fill-color: var(--frank-ink);
+      --keybinding-color: #777770;
+      --button-hover-bg: var(--frank-blue-soft);
+      --button-active-border: var(--frank-blue);
+      --color-on-primary-container: var(--frank-white);
+      --color-surface-primary-container: var(--frank-blue);
+
+      background: var(--frank-white);
+      border-color: var(--frank-rule);
+      border-top: 2px solid var(--frank-blue);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.06);
+
+      .divider {
+        background-color: var(--frank-rule);
+      }
+
+      .ToolIcon__icon,
+      .ToolIcon__icon svg {
+        color: var(--frank-ink);
+      }
+
+      .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon,
+      .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon svg {
+        color: var(--frank-white);
+      }
+    }
+
+    .dropdown-menu-button {
+      --button-bg: var(--frank-blue);
+      --button-color: var(--frank-white);
+      --button-border: var(--frank-blue);
+      --button-hover-bg: var(--frank-blue-dark);
+      --button-hover-color: var(--frank-white);
+      --background: var(--frank-blue);
+      --icon-fill-color: var(--frank-white);
+
+      background-color: var(--frank-blue);
+      border-color: var(--frank-blue);
+      color: var(--frank-white);
+      box-shadow: none;
+
+      svg {
+        color: var(--frank-white);
+      }
+
+      &:hover {
+        --background: var(--frank-blue-dark);
+        background-color: var(--frank-blue-dark);
+      }
+    }
+
+    .dropdown-menu .dropdown-menu-container {
+      border: 1px solid var(--frank-rule);
+      border-top: 2px solid var(--frank-blue);
+      box-shadow: 0 8px 24px rgba(18, 18, 18, 0.1);
+    }
+
+    .sidebar-trigger__label-element:has(.default-sidebar-trigger) {
+      display: none;
+    }
+
+    .dropdown-menu-item--selected,
+    .dropdown-menu-item.highlighted {
+      color: var(--frank-blue);
+    }
+
+    .App-bottom-bar > .Island,
+    .App-menu_bottom .Island {
+      border-color: var(--frank-rule);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
+    }
+
+    .welcome-screen-decor-hint {
+      display: none;
+    }
+
+    .welcome-screen-center {
+      left: clamp(1.5rem, 5vw, 5rem);
+      top: 8rem;
+      right: auto;
+      bottom: auto;
+      width: min(29rem, calc(100vw - 3rem));
+      min-height: 24rem;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: flex-start;
+      gap: 1.75rem;
+      overflow: hidden;
+      box-sizing: border-box;
+      padding: 2rem 0 0;
+      background: transparent;
+      color: var(--frank-ink);
+      border-top: 4px solid var(--frank-blue);
+      border-radius: 0;
+      box-shadow: none;
+
+      &::before {
+        content: "FRANK / CANVAS 01";
+        position: absolute;
+        top: 0.65rem;
+        right: 0;
+        color: #6f6f68;
+        font-family: var(--ui-font);
+        font-size: 0.625rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+      }
+
+      &::after {
+        content: "CLEAR TOOLS / QUIET INTERFACE / 002FA7";
+        position: absolute;
+        left: 0;
+        bottom: -2.25rem;
+        color: #75756e;
+        font-family: var(--ui-font);
+        font-size: 0.625rem;
+        line-height: 1;
+        letter-spacing: 0.12em;
+      }
+
+      .welcome-screen-center__logo {
+        color: var(--frank-ink);
+        margin-top: 1.25rem;
+
+        svg,
+        svg * {
+          color: inherit;
+        }
+
+        .frank-brand-wordmark {
+          font-family: var(--ui-font);
+          font-size: clamp(1.65rem, 3vw, 2.35rem);
+          font-weight: 650;
+          letter-spacing: -0.055em;
+          line-height: 1;
+        }
+      }
+
+      .welcome-screen-center__heading {
+        max-width: 26rem;
+        color: var(--frank-ink);
+        font-family: var(--ui-font);
+        font-size: clamp(2rem, 4vw, 3.25rem);
+        font-weight: 450;
+        line-height: 1.02;
+        letter-spacing: -0.06em;
+        text-align: left;
+      }
+
+      .welcome-screen-menu {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+        margin-top: 0.5rem;
+        margin-bottom: 0;
+        border-top: 1px solid var(--frank-rule);
+      }
+
+      .welcome-screen-menu-item {
+        grid-template-columns: calc(var(--default-icon-size) + 0.5rem) 1fr;
+        min-width: 0;
+        max-width: none;
+        color: var(--frank-ink);
+        border-bottom: 1px solid var(--frank-rule);
+        border-radius: 0;
+        padding: 0.7rem 0.25rem;
+
+        &__shortcut {
+          display: none;
+        }
+
+        &:hover,
+        &:active {
+          background: var(--frank-blue-soft);
+
+          .welcome-screen-menu-item__shortcut,
+          .welcome-screen-menu-item__icon,
+          .welcome-screen-menu-item__text {
+            color: var(--frank-blue);
+          }
+        }
+
+        &:focus-visible {
+          box-shadow: inset 0 0 0 2px var(--frank-blue);
+        }
+      }
+    }
+
+    &.theme--dark {
+      --default-bg-color: #000000;
+      --input-bg-color: #0a0a0a;
+      --input-border-color: #343434;
+      --input-hover-bg-color: #171717;
+      --input-label-color: #d8d8d8;
+      --island-bg-color: #0a0a0a;
+      --island-bg-color-alt: #0f0f0f;
+      --popup-bg-color: #0a0a0a;
+      --popup-secondary-bg-color: #171717;
+      --popup-text-color: #f5f5f5;
+      --keybinding-color: #858585;
+      --default-border-color: #2d2d2d;
+      --button-hover-bg: #1b1b1b;
+      --button-active-bg: #242424;
+      --button-active-border: var(--frank-blue);
+      --shadow-island: none;
+      --shadow-island-stronger: none;
+      --color-primary: var(--frank-blue);
+      --color-primary-darker: #0037c2;
+      --color-primary-darkest: #1749c6;
+      --color-primary-hover: #0b3bb4;
+      --color-primary-light: #171717;
+      --color-primary-light-darker: #222222;
+      --color-selection: var(--frank-blue);
+      --color-brand-hover: #ededed;
+      --color-brand-active: #ffffff;
+      --color-on-primary-container: var(--frank-white);
+      --color-surface-primary-container: var(--frank-blue);
+      --color-logo-icon: var(--frank-white);
+      --color-logo-text: var(--frank-white);
+      --color-surface-high: #242424;
+      --color-surface-mid: #171717;
+      --color-surface-low: #101010;
+      --color-surface-lowest: #000000;
+      --color-on-surface: #f2f2f2;
+      --color-border-outline: #6b6b6b;
+      --color-border-outline-variant: #303030;
+      --link-color: #f2f2f2;
+      --link-color-hover: #ffffff;
+      --focus-highlight-color: #ffffff;
+
+      .Island {
+        background: var(--island-bg-color);
+        border-color: #2d2d2d;
+        box-shadow: none;
+      }
+
+      .App-toolbar-container .Island {
+        --icon-fill-color: #f2f2f2;
+        --keybinding-color: #858585;
+        --button-hover-bg: #202020;
+        --button-active-border: var(--frank-blue);
+        --color-on-primary-container: var(--frank-white);
+        --color-surface-primary-container: var(--frank-blue);
+
+        background: #0a0a0a;
+        border-color: #2d2d2d;
+        border-top-color: var(--frank-blue);
+        box-shadow: none;
+
+        .divider {
+          background-color: #343434;
+        }
+
+        .ToolIcon__icon,
+        .ToolIcon__icon svg {
+          color: #f2f2f2;
+        }
+
+        .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon,
+        .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon svg {
+          color: var(--frank-white);
+        }
+      }
+
+      .dropdown-menu-button,
+      .collab-button {
+        --button-bg: #0a0a0a;
+        --button-color: #f2f2f2;
+        --button-border: #343434;
+        --button-hover-bg: #1b1b1b;
+        --button-hover-color: #ffffff;
+        --background: #0a0a0a;
+        --icon-fill-color: #f2f2f2;
+
+        background-color: #0a0a0a;
+        border-color: #343434;
+        color: #f2f2f2;
+
+        svg {
+          color: #f2f2f2;
+        }
+
+        &:hover {
+          --background: #1b1b1b;
+          background-color: #1b1b1b;
+          border-color: #555555;
+        }
+      }
+
+      .dropdown-menu .dropdown-menu-container {
+        background: #0a0a0a;
+        border-color: #343434;
+        border-top-color: var(--frank-blue);
+        box-shadow: none;
+      }
+
+      .dropdown-menu-item--selected,
+      .dropdown-menu-item.highlighted {
+        color: #ffffff;
+      }
+
+      .App-bottom-bar > .Island,
+      .App-menu_bottom .Island {
+        background: #0a0a0a;
+        border-color: #2d2d2d;
+        box-shadow: none;
+      }
+
+      .welcome-screen-center {
+        color: #f5f5f5;
+        border-top-color: var(--frank-blue);
+
+        &::before,
+        &::after,
+        .welcome-screen-center__logo,
+        .welcome-screen-center__heading,
+        .welcome-screen-menu-item {
+          color: #f5f5f5;
+        }
+
+        .welcome-screen-menu,
+        .welcome-screen-menu-item {
+          border-color: #333333;
+        }
+
+        .welcome-screen-menu-item:hover,
+        .welcome-screen-menu-item:active {
+          background: #171717;
+
+          .welcome-screen-menu-item__icon,
+          .welcome-screen-menu-item__text {
+            color: #ffffff;
+          }
+        }
+      }
+    }
   }
 
-  &:hover {
-    background-color: var(--color-primary);
-    color: white !important;
-  }
+  @media (max-width: 720px), (max-height: 660px) {
+    .excalidraw .welcome-screen-center {
+      left: 1.25rem;
+      top: 5.5rem;
+      right: 1.25rem;
+      bottom: auto;
+      width: auto;
+      min-height: 0;
+      padding: 1.5rem 0 0;
 
-  &:active {
-    background-color: var(--color-primary-darker);
-  }
-}
+      &::before {
+        top: 0.5rem;
+        right: 0;
+      }
 
-.theme--dark {
-  .plus-banner {
-    &:hover {
-      color: black !important;
+      &::after {
+        left: 0;
+        bottom: -1.75rem;
+        font-size: 0.625rem;
+      }
+
+      .welcome-screen-center__logo {
+        margin-top: 1rem;
+      }
+
+      .welcome-screen-center__heading {
+        font-size: clamp(1.15rem, 5vw, 1.55rem);
+      }
+
+      .welcome-screen-menu {
+        margin-bottom: 0;
+      }
     }
   }
 }
