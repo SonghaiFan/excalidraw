@@ -72,7 +72,11 @@ import type { ResolvablePromise } from "@excalidraw/common/utils";
 
 import CustomStats from "./CustomStats";
 import { FrameRecorder } from "./frame-recorder";
-import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
+import {
+  areElementsUnchanged,
+  FrankSceneLifecycle,
+  type FrankSceneSnapshot,
+} from "./frank/scene-lifecycle";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -239,7 +243,7 @@ const AICanvasPrompt = ({
     renderer: {
       cancel: () => void;
       hasRendered: () => boolean;
-      isSceneIntact: (activeElementIds: ReadonlySet<string>) => boolean;
+      isSceneIntact: (elements: FrankSceneSnapshot["elements"]) => boolean;
     };
   } | null>(null);
 
@@ -283,7 +287,7 @@ const AICanvasPrompt = ({
           ));
       if (
         sceneChangedBeforeFirstRender ||
-        !activeRequest.renderer.isSceneIntact(snapshot.activeElementIds)
+        !activeRequest.renderer.isSceneIntact(snapshot.elements)
       ) {
         cancelActiveRequest();
         setIsLoading(false);
@@ -341,6 +345,7 @@ const AICanvasPrompt = ({
     let headerElements: NonDeletedExcalidrawElement[] = [...header.elements];
     let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
     let ownedIds = new Set<string>();
+    let ownedVersions = new Map<string, number>();
     let didFocus = false;
     let cancelled = false;
     const responseId = crypto.randomUUID();
@@ -391,6 +396,9 @@ const AICanvasPrompt = ({
             : newElementWith(element, { isDeleted: true }),
         );
       ownedIds = nextOwnedIds;
+      ownedVersions = new Map(
+        elements.map((element) => [element.id, element.version]),
+      );
       excalidrawAPI.updateScene({
         elements: [
           ...retainedElements,
@@ -607,10 +615,8 @@ const AICanvasPrompt = ({
         cancelled = true;
       },
       hasRendered: () => ownedIds.size > 0,
-      isSceneIntact: (activeElementIds: ReadonlySet<string>) =>
-        !cancelled &&
-        (ownedIds.size === 0 ||
-          [...ownedIds].every((id) => activeElementIds.has(id))),
+      isSceneIntact: (elements: FrankSceneSnapshot["elements"]) =>
+        !cancelled && areElementsUnchanged(elements, ownedVersions),
     };
   };
 

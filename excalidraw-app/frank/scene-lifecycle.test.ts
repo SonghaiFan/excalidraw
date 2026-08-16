@@ -4,6 +4,7 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import {
+  areElementsUnchanged,
   classifySceneTransition,
   FrankSceneLifecycle,
 } from "./scene-lifecycle";
@@ -57,5 +58,17 @@ describe("classifySceneTransition", () => {
     );
 
     expect(transitions).toEqual(["clear"]);
+  });
+
+  it("detects user edits or deletes to elements owned by a live operation", () => {
+    const expected = new Map([["answer", 3]]);
+
+    expect(
+      areElementsUnchanged([{ ...element("answer"), version: 3 }], expected),
+    ).toBe(true);
+    expect(
+      areElementsUnchanged([{ ...element("answer"), version: 4 }], expected),
+    ).toBe(false);
+    expect(areElementsUnchanged([element("other")], expected)).toBe(false);
   });
 });

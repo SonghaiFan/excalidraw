@@ -9,6 +9,25 @@ export type FrankSceneSnapshot = {
   transition: FrankSceneTransition;
 };
 
+export const areElementsUnchanged = (
+  elements: readonly ExcalidrawElement[],
+  expectedVersions: ReadonlyMap<string, number>,
+) => {
+  if (expectedVersions.size === 0) {
+    return true;
+  }
+  const elementsById = new Map(
+    elements.map((element) => [element.id, element]),
+  );
+  for (const [id, version] of expectedVersions) {
+    const element = elementsById.get(id);
+    if (!element || element.isDeleted || element.version !== version) {
+      return false;
+    }
+  }
+  return true;
+};
+
 type SceneListener = (snapshot: FrankSceneSnapshot) => void;
 
 const getActiveElementIds = (elements: readonly ExcalidrawElement[]) =>

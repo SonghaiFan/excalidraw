@@ -9,6 +9,7 @@ import {
   clampCameraPosition,
   formatRecordingTime,
   getFrameSceneSignature,
+  getFramePlaybackIndex,
   getRecorderMimeType,
   getRecordingDimensions,
   sortFramesForPlayback,
@@ -82,5 +83,15 @@ describe("frame recorder", () => {
     expect(getFrameSceneSignature(elements, "frame")).toBe(
       "frame:1:400:300|inside:2:80:40",
     );
+  });
+
+  it("keeps the playback index aligned when an earlier frame is removed", () => {
+    const frames = [
+      { id: "page-2" },
+      { id: "page-3" },
+    ] as NonDeleted<ExcalidrawFrameElement>[];
+
+    expect(getFramePlaybackIndex(frames, "page-3")).toBe(1);
+    expect(getFramePlaybackIndex(frames, "removed-page")).toBe(0);
   });
 });
