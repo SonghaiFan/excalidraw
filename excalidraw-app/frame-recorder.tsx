@@ -1,4 +1,7 @@
-import { sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
+import {
+  exportToCanvas,
+  sceneCoordsToViewportCoords,
+} from "@excalidraw/excalidraw";
 import {
   chevronLeftIcon,
   chevronRight,
@@ -10,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type {
+  ExcalidrawElement,
   ExcalidrawFrameElement,
   NonDeleted,
 } from "@excalidraw/element/types";
@@ -107,6 +111,22 @@ export const sortFramesForPlayback = (
     return sameRow ? a.x - b.x : a.y - b.y;
   });
 
+export const getFrameSceneSignature = (
+  elements: readonly ExcalidrawElement[],
+  frameId: string,
+) =>
+  elements
+    .filter(
+      (element) =>
+        !element.isDeleted &&
+        (element.id === frameId || element.frameId === frameId),
+    )
+    .map(
+      (element) =>
+        `${element.id}:${element.version}:${element.width}:${element.height}`,
+    )
+    .join("|");
+
 export const getRecorderMimeType = (
   isTypeSupported = MediaRecorder.isTypeSupported.bind(MediaRecorder),
 ) => {
@@ -196,7 +216,11 @@ export const FrameRecorder = ({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const frameExportTimerRef = useRef<number | null>(null);
+  const frameExportIdRef = useRef(0);
+  const frameSceneSignatureRef = useRef("");
   const cameraPositionRef = useRef<CameraPosition>(
     recorderSettings.cameraPosition,
   );
@@ -210,6 +234,7 @@ export const FrameRecorder = ({
   const previewPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const recordingStartPendingRef = useRef(false);
   const stopPreviewRef = useRef<() => void>(() => {});
+  const scheduleFrameCanvasRefreshRef = useRef<() => void>(() => {});
   const onCloseRef = useRef(onClose);
   isOpenRef.current = isOpen;
   statusRef.current = status;
@@ -256,6 +281,9 @@ export const FrameRecorder = ({
     }
     setCurrentIndex(nextIndex);
     currentFrameIdRef.current = frameId;
+    frameCanvasRef.current = null;
+    frameSceneSignatureRef.current = "";
+    void refreshFrameCanvas();
     excalidrawAPI.setViewport({
       target: [frame],
       fit: "scale-down",
@@ -314,43 +342,90 @@ export const FrameRecorder = ({
     }px`;
   };
 
+  const refreshFrameCanvas = async () => {
+    const frame = getCurrentFrame();
+    if (!frame || excalidrawAPI.isDestroyed) {
+      return false;
+    }
+    const exportId = ++frameExportIdRef.current;
+    const appState = excalidrawAPI.getAppState();
+    try {
+      const frameCanvas = await exportToCanvas({
+        elements: excalidrawAPI.getSceneElements(),
+        appState: {
+          ...appState,
+          exportBackground: true,
+          exportScale: 1,
+          exportWithDarkMode: appState.theme === "dark",
+        },
+        files: excalidrawAPI.getFiles(),
+        exportingFrame: frame,
+        getDimensions: () => getRecordingDimensions(frame),
+      });
+      if (
+        exportId !== frameExportIdRef.current ||
+        frame.id !== currentFrameIdRef.current
+      ) {
+        return false;
+      }
+      frameCanvasRef.current = frameCanvas;
+      frameSceneSignatureRef.current = getFrameSceneSignature(
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        frame.id,
+      );
+      return true;
+    } catch {
+      if (exportId === frameExportIdRef.current) {
+        excalidrawAPI.setToast({
+          message: "The current frame could not be prepared for recording.",
+        });
+      }
+      return false;
+    }
+  };
+
+  const scheduleFrameCanvasRefresh = () => {
+    if (frameExportTimerRef.current !== null) {
+      window.clearTimeout(frameExportTimerRef.current);
+    }
+    frameExportTimerRef.current = window.setTimeout(() => {
+      frameExportTimerRef.current = null;
+      void refreshFrameCanvas();
+    }, 80);
+  };
+  scheduleFrameCanvasRefreshRef.current = scheduleFrameCanvasRefresh;
+
   const drawRecordingFrame = () => {
     const frame = getCurrentFrame();
     const captureCanvas = captureCanvasRef.current;
-    const sourceCanvas = document.querySelector<HTMLCanvasElement>(
-      ".excalidraw-app canvas.excalidraw__canvas.static",
-    );
+    const sourceCanvas = frameCanvasRef.current;
     if (!frame || !captureCanvas || !sourceCanvas) {
       return;
     }
 
     const appState = excalidrawAPI.getAppState();
-    const frameRect = getFrameViewportRect(frame, appState);
     updateCameraOverlay(frame, appState);
 
     const context = captureCanvas.getContext("2d");
-    if (!context || frameRect.width <= 0 || frameRect.height <= 0) {
+    if (!context || sourceCanvas.width <= 0 || sourceCanvas.height <= 0) {
       return;
     }
     context.fillStyle =
       appState.theme === "dark" ? "#000000" : appState.viewBackgroundColor;
     context.fillRect(0, 0, captureCanvas.width, captureCanvas.height);
 
-    const sourceRect = sourceCanvas.getBoundingClientRect();
-    const sourceScaleX = sourceCanvas.width / sourceRect.width;
-    const sourceScaleY = sourceCanvas.height / sourceRect.height;
     const destination = fitInside(
-      frameRect.width,
-      frameRect.height,
+      sourceCanvas.width,
+      sourceCanvas.height,
       captureCanvas.width,
       captureCanvas.height,
     );
     context.drawImage(
       sourceCanvas,
-      (frameRect.x - sourceRect.left) * sourceScaleX,
-      (frameRect.y - sourceRect.top) * sourceScaleY,
-      frameRect.width * sourceScaleX,
-      frameRect.height * sourceScaleY,
+      0,
+      0,
+      sourceCanvas.width,
+      sourceCanvas.height,
       destination.x,
       destination.y,
       destination.width,
@@ -426,6 +501,9 @@ export const FrameRecorder = ({
     if (previewPromiseRef.current) {
       return previewPromiseRef.current;
     }
+    if (!(await refreshFrameCanvas())) {
+      return null;
+    }
 
     const requestId = ++previewRequestIdRef.current;
     const request = navigator.mediaDevices
@@ -488,7 +566,11 @@ export const FrameRecorder = ({
     recordingStartPendingRef.current = true;
     try {
       const mediaStream = await startPreview();
-      if (!mediaStream || !getCurrentFrame()) {
+      const recordingFrame = getCurrentFrame();
+      if (!mediaStream || !recordingFrame) {
+        return;
+      }
+      if (!(await refreshFrameCanvas())) {
         return;
       }
 
@@ -496,7 +578,7 @@ export const FrameRecorder = ({
         URL.revokeObjectURL(recordingUrl);
         setRecordingUrl(null);
       }
-      const dimensions = getRecordingDimensions(frame);
+      const dimensions = getRecordingDimensions(recordingFrame);
       const captureCanvas =
         captureCanvasRef.current || document.createElement("canvas");
       captureCanvas.width = dimensions.width;
@@ -594,6 +676,11 @@ export const FrameRecorder = ({
     previewRequestIdRef.current += 1;
     previewPromiseRef.current = null;
     recordingStartPendingRef.current = false;
+    frameExportIdRef.current += 1;
+    if (frameExportTimerRef.current !== null) {
+      window.clearTimeout(frameExportTimerRef.current);
+      frameExportTimerRef.current = null;
+    }
     stopRecording();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
@@ -624,6 +711,9 @@ export const FrameRecorder = ({
     const targetFrame =
       nextFrames.find((frame) => frame.id === currentFrameIdRef.current) ||
       nextFrames[0];
+    frameCanvasRef.current = null;
+    frameSceneSignatureRef.current = "";
+    void refreshFrameCanvas();
     excalidrawAPI.setViewport({
       target: [targetFrame],
       fit: "scale-down",
@@ -701,6 +791,16 @@ export const FrameRecorder = ({
         }
       }
 
+      if (currentFrameId && snapshot.activeElementIds.has(currentFrameId)) {
+        const nextSignature = getFrameSceneSignature(
+          snapshot.elements,
+          currentFrameId,
+        );
+        if (nextSignature !== frameSceneSignatureRef.current) {
+          scheduleFrameCanvasRefreshRef.current();
+        }
+      }
+
       setFrames((previousFrames) => {
         const didFrameListChange =
           previousFrames.length !== nextFrames.length ||
@@ -747,6 +847,10 @@ export const FrameRecorder = ({
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
       }
+      if (frameExportTimerRef.current !== null) {
+        window.clearTimeout(frameExportTimerRef.current);
+      }
+      frameExportIdRef.current += 1;
     };
   }, []);
 

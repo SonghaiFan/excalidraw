@@ -8,6 +8,7 @@ import type {
 import {
   clampCameraPosition,
   formatRecordingTime,
+  getFrameSceneSignature,
   getRecorderMimeType,
   getRecordingDimensions,
   sortFramesForPlayback,
@@ -69,5 +70,17 @@ describe("frame recorder", () => {
 
     expect(right).toBe(frame.x + frame.width);
     expect(bottom).toBe(frame.y + frame.height);
+  });
+
+  it("refreshes a recording background only for changes in its frame", () => {
+    const elements = [
+      { id: "frame", frameId: null, version: 1, width: 400, height: 300 },
+      { id: "inside", frameId: "frame", version: 2, width: 80, height: 40 },
+      { id: "outside", frameId: null, version: 9, width: 20, height: 20 },
+    ] as unknown as ExcalidrawFrameElement[];
+
+    expect(getFrameSceneSignature(elements, "frame")).toBe(
+      "frame:1:400:300|inside:2:80:40",
+    );
   });
 });
