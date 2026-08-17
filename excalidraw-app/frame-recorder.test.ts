@@ -17,8 +17,10 @@ import {
   getRecordingDownloadMetadata,
   getRecordingDimensions,
   getRecordingLayoutRects,
+  shouldRefreshRecordingExport,
   shouldRenderRecordingComposite,
   smoothCameraFrameDelay,
+  usesNativeFullCamera,
 } from "./frame-recorder";
 import {
   getNextFramePosition,
@@ -153,7 +155,7 @@ describe("frame recorder", () => {
     });
   });
 
-  it("keeps Split and PIP previews on the native Excalidraw canvas", () => {
+  it("keeps every editor preview on the native Excalidraw canvas", () => {
     expect(shouldRenderRecordingComposite("frame", "split", false)).toBe(false);
     expect(shouldRenderRecordingComposite("frame", "canvas-pip", false)).toBe(
       false,
@@ -162,9 +164,15 @@ describe("frame recorder", () => {
       false,
     );
     expect(shouldRenderRecordingComposite("frame", "full-camera", false)).toBe(
-      true,
+      false,
     );
     expect(shouldRenderRecordingComposite("frame", "split", true)).toBe(true);
+    expect(usesNativeFullCamera("frame", "full-camera")).toBe(true);
+    expect(usesNativeFullCamera("frame", "split")).toBe(false);
+    expect(shouldRefreshRecordingExport("frame", "full-camera", true)).toBe(
+      false,
+    );
+    expect(shouldRefreshRecordingExport("frame", "split", true)).toBe(true);
   });
 
   it("clips an HTML camera preview at its recording boundary", () => {

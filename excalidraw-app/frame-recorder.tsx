@@ -121,10 +121,23 @@ export const getAudioSyncDelay = (
   );
 
 export const shouldRenderRecordingComposite = (
+  _scope: RecorderScope,
+  _layout: RecorderLayout,
+  isRecording: boolean,
+) => isRecording;
+
+export const usesNativeFullCamera = (
+  scope: RecorderScope,
+  layout: RecorderLayout,
+) => scope === "frame" && layout === "full-camera";
+
+export const shouldRefreshRecordingExport = (
   scope: RecorderScope,
   layout: RecorderLayout,
   isRecording: boolean,
-) => isRecording || (scope === "frame" && layout === "full-camera");
+) =>
+  shouldRenderRecordingComposite(scope, layout, isRecording) &&
+  !usesNativeFullCamera(scope, layout);
 
 const readRecorderSettings = (): RecorderSettings => {
   const fallback: RecorderSettings = {
@@ -380,6 +393,85 @@ const fitInside = (
   };
 };
 
+const drawNativeFrameCanvases = (
+  context: CanvasRenderingContext2D,
+  destination: ViewportRect,
+  frameRect: ViewportRect,
+  theme: AppState["theme"],
+) => {
+  if (
+    frameRect.width <= 0 ||
+    frameRect.height <= 0 ||
+    destination.width <= 0 ||
+    destination.height <= 0
+  ) {
+    return;
+  }
+
+  const fitted = fitInside(
+    frameRect.width,
+    frameRect.height,
+    destination.width,
+    destination.height,
+  );
+  const target = {
+    x: destination.x + fitted.x,
+    y: destination.y + fitted.y,
+    width: fitted.width,
+    height: fitted.height,
+  };
+  const canvases = document.querySelectorAll<HTMLCanvasElement>(
+    ".excalidraw-app .excalidraw__canvas",
+  );
+
+  context.save();
+  context.beginPath();
+  context.rect(target.x, target.y, target.width, target.height);
+  context.clip();
+  // The static Excalidraw canvas includes its paper color. Blending it over
+  // the camera turns that paper into transparency while retaining the native
+  // scene and the in-progress interactive canvas exactly as the editor draws
+  // them.
+  context.globalCompositeOperation = theme === "dark" ? "screen" : "multiply";
+
+  canvases.forEach((canvas) => {
+    const bounds = canvas.getBoundingClientRect();
+    if (
+      canvas.width <= 0 ||
+      canvas.height <= 0 ||
+      bounds.width <= 0 ||
+      bounds.height <= 0
+    ) {
+      return;
+    }
+
+    const left = Math.max(bounds.left, frameRect.x);
+    const top = Math.max(bounds.top, frameRect.y);
+    const right = Math.min(bounds.right, frameRect.x + frameRect.width);
+    const bottom = Math.min(bounds.bottom, frameRect.y + frameRect.height);
+    if (right <= left || bottom <= top) {
+      return;
+    }
+
+    const sourceScaleX = canvas.width / bounds.width;
+    const sourceScaleY = canvas.height / bounds.height;
+    const filter = window.getComputedStyle(canvas).filter;
+    context.filter = filter === "none" ? "none" : filter;
+    context.drawImage(
+      canvas,
+      (left - bounds.left) * sourceScaleX,
+      (top - bounds.top) * sourceScaleY,
+      (right - left) * sourceScaleX,
+      (bottom - top) * sourceScaleY,
+      target.x + ((left - frameRect.x) / frameRect.width) * target.width,
+      target.y + ((top - frameRect.y) / frameRect.height) * target.height,
+      ((right - left) / frameRect.width) * target.width,
+      ((bottom - top) / frameRect.height) * target.height,
+    );
+  });
+  context.restore();
+};
+
 const drawVideoCover = (
   context: CanvasRenderingContext2D,
   video: HTMLVideoElement,
@@ -529,13 +621,6 @@ export const FrameRecorder = ({
     return captureCanvas;
   };
 
-  const setFramePreviewVisible = (isVisible: boolean) => {
-    const preview = captureCanvasRef.current;
-    if (preview) {
-      preview.style.visibility = isVisible ? "visible" : "hidden";
-    }
-  };
-
   const stopRecordingAudioPipeline = () => {
     const pipeline = recordingAudioPipelineRef.current;
     if (!pipeline) {
@@ -680,16 +765,13 @@ export const FrameRecorder = ({
     frameExportIdRef.current += 1;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
-    if (scope === "frame") {
-      setFramePreviewVisible(false);
-    }
     setRecorderSettings((settings) => ({ ...settings, scope, layout }));
     const source = getRecordingSourceDimensions();
     if (source) {
       resizeCaptureCanvas(source);
     }
     updateRecordingOverlay(excalidrawAPI.getAppState());
-    if (shouldRenderRecordingComposite(scope, layout, false)) {
+    if (shouldRefreshRecordingExport(scope, layout, false)) {
       scheduleFrameCanvasRefreshRef.current();
     }
     if (isOpenRef.current && !mediaStreamRef.current) {
@@ -714,21 +796,9 @@ export const FrameRecorder = ({
     if (!rect) {
       return;
     }
-    const preview = captureCanvasRef.current;
-    if (
-      preview &&
-      scopeRef.current === "frame" &&
-      layoutRef.current === "full-camera"
-    ) {
-      preview.style.left = `${rect.x}px`;
-      preview.style.top = `${rect.y}px`;
-      preview.style.width = `${rect.width}px`;
-      preview.style.height = `${rect.height}px`;
-      preview.style.clipPath = "inset(0)";
-    }
     const camera = cameraRef.current;
     const currentLayout = layoutRef.current;
-    if (!camera || currentLayout === "full-camera") {
+    if (!camera) {
       return;
     }
     const previewLayout = getCameraPreviewLayoutRects(
@@ -809,7 +879,6 @@ export const FrameRecorder = ({
       );
       frameAppearanceRef.current = `${appState.theme}:${appState.viewBackgroundColor}`;
       drawRecordingFrameRef.current();
-      setFramePreviewVisible(layoutRef.current === "full-camera");
       return true;
     } catch {
       if (exportId === frameExportIdRef.current) {
@@ -836,12 +905,20 @@ export const FrameRecorder = ({
     const appState = excalidrawAPI.getAppState();
     const captureCanvas = captureCanvasRef.current;
     const sourceCanvas = frameCanvasRef.current;
-    if (!captureCanvas || !sourceCanvas) {
+    const nativeFullCamera = usesNativeFullCamera(
+      scopeRef.current,
+      layoutRef.current,
+    );
+    if (!captureCanvas || (!nativeFullCamera && !sourceCanvas)) {
       return;
     }
 
     const context = captureCanvas.getContext("2d");
-    if (!context || sourceCanvas.width <= 0 || sourceCanvas.height <= 0) {
+    if (
+      !context ||
+      (!nativeFullCamera &&
+        (!sourceCanvas || sourceCanvas.width <= 0 || sourceCanvas.height <= 0))
+    ) {
       return;
     }
     context.fillStyle =
@@ -859,6 +936,21 @@ export const FrameRecorder = ({
     );
 
     const drawCanvas = () => {
+      if (nativeFullCamera) {
+        const frameRect = getRecordingViewportRect(appState);
+        if (frameRect) {
+          drawNativeFrameCanvases(
+            context,
+            layout.canvas,
+            frameRect,
+            appState.theme,
+          );
+        }
+        return;
+      }
+      if (!sourceCanvas) {
+        return;
+      }
       const canvasDestination = fitInside(
         sourceCanvas.width,
         sourceCanvas.height,
@@ -1082,7 +1174,10 @@ export const FrameRecorder = ({
       if (!mediaStream || !recordingSource) {
         return;
       }
-      if (!(await refreshFrameCanvas())) {
+      if (
+        !usesNativeFullCamera(scopeRef.current, layoutRef.current) &&
+        !(await refreshFrameCanvas())
+      ) {
         return;
       }
       await waitForCameraSyncSample();
@@ -1294,7 +1389,6 @@ export const FrameRecorder = ({
       recordedSecondsRef.current = 0;
       setElapsedSeconds(0);
     }
-    setFramePreviewVisible(false);
     setStatus("idle");
   };
   stopPreviewRef.current = stopPreview;
@@ -1322,7 +1416,6 @@ export const FrameRecorder = ({
     frameExportIdRef.current += 1;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
-    setFramePreviewVisible(false);
     const source = getRecordingSourceDimensions();
     if (source) {
       resizeCaptureCanvas(source);
@@ -1415,10 +1508,9 @@ export const FrameRecorder = ({
           frameExportIdRef.current += 1;
           frameSceneSignatureRef.current = "";
           frameAppearanceRef.current = "";
-          setFramePreviewVisible(false);
           resizeCaptureCanvas(selectedFrame);
           if (
-            shouldRenderRecordingComposite(
+            shouldRefreshRecordingExport(
               scopeRef.current,
               layoutRef.current,
               recorderRef.current?.state === "recording",
@@ -1434,7 +1526,7 @@ export const FrameRecorder = ({
         currentFrameId &&
         snapshot.activeElementIds.has(currentFrameId)
       ) {
-        const shouldRefreshComposite = shouldRenderRecordingComposite(
+        const shouldRefreshComposite = shouldRefreshRecordingExport(
           scopeRef.current,
           layoutRef.current,
           recorderRef.current?.state === "recording",
@@ -1751,31 +1843,19 @@ export const FrameRecorder = ({
             <>
               <canvas
                 ref={captureCanvasRef}
-                className={`frank-recorder__preview ${
-                  isOpen &&
-                  hasRecordingTarget &&
-                  status !== "idle" &&
-                  shouldRenderRecordingComposite(
-                    recorderSettings.scope,
-                    recorderSettings.layout,
-                    false,
-                  )
-                    ? "frank-recorder__preview--visible"
-                    : ""
-                }`}
+                className="frank-recorder__preview"
                 aria-hidden="true"
               />
               <div
                 ref={cameraRef}
                 className={`frank-recorder__camera ${
-                  isOpen &&
-                  hasRecordingTarget &&
-                  status !== "idle" &&
-                  recorderSettings.layout !== "full-camera"
+                  isOpen && hasRecordingTarget && status !== "idle"
                     ? "frank-recorder__camera--visible"
                     : ""
                 } ${
-                  recorderSettings.layout === "canvas-pip"
+                  recorderSettings.layout === "full-camera"
+                    ? "frank-recorder__camera--full"
+                    : recorderSettings.layout === "canvas-pip"
                     ? "frank-recorder__camera--pip"
                     : recorderSettings.layout === "split"
                     ? "frank-recorder__camera--split"

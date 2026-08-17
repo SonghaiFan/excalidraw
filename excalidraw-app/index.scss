@@ -1330,26 +1330,9 @@
   }
 
   @at-root .frank-recorder__preview {
-    position: fixed;
-    // Full Camera behaves like the Frame's media background. The committed
-    // scene stays in the composite, while live drawing and editor UI render
-    // above it without waiting for the debounced export refresh.
-    z-index: var(--zIndex-interactiveCanvas);
+    // Recording-only surface. It must never replace the live Excalidraw
+    // canvases in the editor.
     display: none;
-    background: #000000;
-    clip-path: inset(0);
-    contain: paint;
-    pointer-events: none;
-
-    &--visible {
-      display: block;
-    }
-  }
-
-  @at-root body:has(.frank-recorder__preview--visible) {
-    .excalidraw-app .excalidraw__canvas:not(.static) {
-      z-index: var(--zIndex-svgLayer);
-    }
   }
 
   @at-root .frank-recorder__camera {
@@ -1371,6 +1354,11 @@
       border-radius: 0;
     }
 
+    &--full {
+      z-index: 0;
+      border-radius: 0;
+    }
+
     &--pip {
       border-radius: 50%;
       cursor: grab;
@@ -1389,6 +1377,18 @@
       object-fit: cover;
       transform: scaleX(-1);
       pointer-events: none;
+    }
+  }
+
+  @at-root body:has(.frank-recorder__camera--full.frank-recorder__camera--visible) {
+    .excalidraw-app .excalidraw__canvas.static {
+      // The camera is the Frame background. The native canvas remains the
+      // only editor surface above it, including in-progress strokes.
+      mix-blend-mode: multiply;
+    }
+
+    .excalidraw-app .excalidraw.theme--dark .excalidraw__canvas.static {
+      mix-blend-mode: screen;
     }
   }
 
