@@ -76,8 +76,15 @@ import { FrameRecorder } from "./frame-recorder";
 import {
   clampFrameDimension,
   FRAME_PRESETS,
+  resolveSelectedFrameIds,
   type FramePreset,
 } from "./frank/frame-utils";
+import {
+  areFrameContextsEqual,
+  getSelectedFrameContexts,
+  MAX_AI_CONTEXT_FRAMES,
+  type AIFrameContext,
+} from "./frank/frame-context";
 import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
@@ -225,6 +232,12 @@ const AICanvasPrompt = ({
     width: "1080",
     height: "1350",
   });
+  const [frameContexts, setFrameContexts] = useState<AIFrameContext[]>(() =>
+    getSelectedFrameContexts(
+      excalidrawAPI.getSceneElements(),
+      excalidrawAPI.getAppState().selectedElementIds,
+    ),
+  );
   const messagesRef = useRef<AIMessage[]>([]);
   const nextCardPositionRef = useRef<{ x: number; y: number } | null>(null);
   const activeRequestRef = useRef<{
@@ -255,6 +268,16 @@ const AICanvasPrompt = ({
 
   useEffect(() => {
     return sceneLifecycle.subscribe((snapshot) => {
+      const nextFrameContexts = getSelectedFrameContexts(
+        snapshot.elements,
+        snapshot.selectedElementIds,
+      );
+      setFrameContexts((previousContexts) =>
+        areFrameContextsEqual(previousContexts, nextFrameContexts)
+          ? previousContexts
+          : nextFrameContexts,
+      );
+
       if (
         snapshot.transition === "clear" ||
         snapshot.transition === "replace"
@@ -294,6 +317,27 @@ const AICanvasPrompt = ({
           height: clampFrameDimension(customFrameSize.height, 1350),
         }
       : FRAME_PRESETS[framePreset];
+
+  const removeFrameContext = (frameId: string) => {
+    const elements = excalidrawAPI.getSceneElements();
+    const selectedElementIds = {
+      ...excalidrawAPI.getAppState().selectedElementIds,
+    };
+    for (const element of elements) {
+      if (!selectedElementIds[element.id]) {
+        continue;
+      }
+      const selectedFrameId =
+        element.type === "frame" ? element.id : element.frameId;
+      if (selectedFrameId === frameId) {
+        delete selectedElementIds[element.id];
+      }
+    }
+    excalidrawAPI.updateScene({
+      appState: { selectedElementIds },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  };
 
   const createResponseRenderer = (
     question: string,
@@ -618,6 +662,21 @@ const AICanvasPrompt = ({
       ...messagesRef.current,
       { role: "user" as const, content: question },
     ].slice(-12);
+    const sceneElements = excalidrawAPI.getSceneElements();
+    const selectedElementIds = excalidrawAPI.getAppState().selectedElementIds;
+    const selectedFrameCount = resolveSelectedFrameIds(
+      sceneElements,
+      selectedElementIds,
+    ).size;
+    const requestFrameContexts = getSelectedFrameContexts(
+      sceneElements,
+      selectedElementIds,
+    );
+    if (selectedFrameCount > MAX_AI_CONTEXT_FRAMES) {
+      excalidrawAPI.setToast({
+        message: `Frank will use the first ${MAX_AI_CONTEXT_FRAMES} selected frames.`,
+      });
+    }
 
     setIsLoading(true);
     const renderer = createResponseRenderer(question, provider);
@@ -658,6 +717,14 @@ const AICanvasPrompt = ({
           provider,
           apiKey: apiKey.trim() || undefined,
           messages,
+          contextFrames: requestFrameContexts.map(
+            ({ name, width, height, content }) => ({
+              name,
+              width,
+              height,
+              content,
+            }),
+          ),
         }),
       });
       const answer = await readAIStream(response, scheduleStreamingRender);
@@ -713,6 +780,29 @@ const AICanvasPrompt = ({
             }
           }}
         >
+          {frameContexts.length ? (
+            <div
+              className="frank-ai__context"
+              role="group"
+              aria-label="AI frame context"
+            >
+              <span>Context</span>
+              <div className="frank-ai__context-list">
+                {frameContexts.map((context) => (
+                  <button
+                    key={context.id}
+                    type="button"
+                    title={`Remove ${context.name} from context`}
+                    onClick={() => removeFrameContext(context.id)}
+                  >
+                    <span>{context.name}</span>
+                    <span aria-hidden="true">×</span>
+                  </button>
+                ))}
+              </div>
+              <small>Selected frames are sent with this prompt.</small>
+            </div>
+          ) : null}
           <div className="frank-ai__composer">
             <label className="visually-hidden" htmlFor="frank-ai-prompt">
               Ask Frank on canvas

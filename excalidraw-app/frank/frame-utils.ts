@@ -27,13 +27,24 @@ export const sortFramesForPlayback = (
 export const resolveSelectedFrameId = (
   elements: readonly ExcalidrawElement[],
   selectedElementIds: Readonly<Record<string, true>>,
+) =>
+  resolveSelectedFrameIds(elements, selectedElementIds).values().next().value ||
+  null;
+
+export const resolveSelectedFrameIds = (
+  elements: readonly ExcalidrawElement[],
+  selectedElementIds: Readonly<Record<string, true>>,
 ) => {
+  const frameIds = new Set<string>();
   for (const element of elements) {
     if (!element.isDeleted && selectedElementIds[element.id]) {
-      return element.type === "frame" ? element.id : element.frameId;
+      const frameId = element.type === "frame" ? element.id : element.frameId;
+      if (frameId) {
+        frameIds.add(frameId);
+      }
     }
   }
-  return null;
+  return frameIds;
 };
 
 export const getNextFramePosition = (

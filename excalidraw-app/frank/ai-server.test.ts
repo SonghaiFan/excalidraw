@@ -26,6 +26,78 @@ describe("Frank AI server", () => {
     expect(response.status).toBe(400);
   });
 
+  it("rejects oversized Frame context", () => {
+    expect(
+      validateAIRequest({
+        ...body,
+        contextFrames: Array.from({ length: 5 }, (_, index) => ({
+          name: `Frame ${index + 1}`,
+          width: 1080,
+          height: 1350,
+          content: "Reference",
+        })),
+      }),
+    ).toBeNull();
+    expect(
+      validateAIRequest({
+        ...body,
+        contextFrames: [
+          {
+            name: "Large Frame",
+            width: 1080,
+            height: 1350,
+            content: "A".repeat(6_001),
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("adds selected Frames to the provider prompt without mutating chat history", async () => {
+    let providerBody: {
+      input?: Array<{ role: string; content: string }>;
+    } = {};
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      providerBody = JSON.parse(String(init?.body));
+      return new Response(
+        [
+          'data: {"type":"response.output_text.delta","delta":"Answer"}\n\n',
+          'data: {"type":"response.completed"}\n\n',
+        ].join(""),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const requestBody = {
+      ...body,
+      contextFrames: [
+        {
+          name: "Research",
+          width: 1080,
+          height: 1350,
+          content: "Text (32px): Existing idea",
+        },
+      ],
+    };
+
+    const response = await handleFrankAIRequest(
+      new Request("http://localhost/api/ai", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      }),
+    );
+    await response.text();
+
+    expect(providerBody.input?.at(-1)?.content).toContain(
+      "Frame 1: Research (1080×1350)",
+    );
+    expect(providerBody.input?.at(-1)?.content).toContain("Existing idea");
+    expect(providerBody.input?.at(-1)?.content).toContain(
+      "User question:\nDraw a plan",
+    );
+    expect(requestBody.messages).toEqual(body.messages);
+  });
+
   it("normalizes the provider stream into Frank Canvas events", async () => {
     vi.stubGlobal(
       "fetch",

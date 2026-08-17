@@ -255,6 +255,69 @@
       }
     }
 
+    &__context {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 0.55rem;
+      align-items: center;
+      min-height: 2.4rem;
+      padding: 0.35rem 0.65rem;
+      border-bottom: 1px solid var(--frank-rule);
+
+      > span {
+        color: #6b6b66;
+        font: 600 0.56rem/1 Helvetica, Arial, sans-serif;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      small {
+        color: #777772;
+        font: 400 0.62rem/1.2 Helvetica, Arial, sans-serif;
+        white-space: nowrap;
+      }
+    }
+
+    &__context-list {
+      display: flex;
+      gap: 0.3rem;
+      min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: thin;
+
+      button {
+        display: inline-flex;
+        flex: 0 0 auto;
+        gap: 0.4rem;
+        align-items: center;
+        max-width: 10rem;
+        min-height: 1.65rem;
+        padding: 0 0.45rem;
+        border: 1px solid var(--frank-rule);
+        border-radius: 0.2rem;
+        background: transparent;
+        color: inherit;
+        font: 500 0.64rem/1 Helvetica, Arial, sans-serif;
+        cursor: pointer;
+
+        span:first-child {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        span:last-child {
+          color: #777772;
+        }
+
+        &:hover,
+        &:focus-visible {
+          border-color: var(--frank-blue);
+          outline: 0;
+        }
+      }
+    }
+
     &__voice,
     &__send,
     &__close {
@@ -433,9 +496,17 @@
 
       .frank-ai__voice,
       .frank-ai__send,
+      .frank-ai__context,
+      .frank-ai__context-list button,
       .frank-ai__controls,
       .frank-ai__api-key-editor button {
         border-color: #343434;
+      }
+
+      .frank-ai__context > span,
+      .frank-ai__context small,
+      .frank-ai__context-list button span:last-child {
+        color: #8c8c8c;
       }
 
       .frank-ai__api-key-editor {
@@ -471,6 +542,14 @@
         > .frank-ai__api-key-editor {
           grid-column: 1 / 3;
           grid-row: 2;
+        }
+      }
+
+      &__context {
+        grid-template-columns: auto minmax(0, 1fr);
+
+        small {
+          display: none;
         }
       }
 
@@ -567,7 +646,8 @@
       }
     }
 
-    &__list button[aria-current="page"] {
+    &__list button[aria-current="page"],
+    &__list button[aria-pressed="true"] {
       border-color: var(--frank-blue);
       background: var(--frank-blue-soft);
       color: var(--frank-blue-dark);
@@ -744,7 +824,8 @@
         background: #151515;
       }
 
-      .frank-pages__list button[aria-current="page"] {
+      .frank-pages__list button[aria-current="page"],
+      .frank-pages__list button[aria-pressed="true"] {
         border-color: var(--frank-blue);
         background: #171717;
         color: #ffffff;

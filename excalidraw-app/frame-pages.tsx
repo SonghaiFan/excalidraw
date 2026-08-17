@@ -20,8 +20,10 @@ import {
   FRAME_PRESETS,
   getNextFramePosition,
   resolveSelectedFrameId,
+  resolveSelectedFrameIds,
   sortFramesForPlayback,
 } from "./frank/frame-utils";
+import { MAX_AI_CONTEXT_FRAMES } from "./frank/frame-context";
 
 import type { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 
@@ -29,6 +31,11 @@ const getFrames = (excalidrawAPI: ExcalidrawImperativeAPI) =>
   sortFramesForPlayback(
     excalidrawAPI.getSceneElements().filter(isFrameElement),
   );
+
+const areIdSetsEqual = (
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+) => left.size === right.size && [...left].every((id) => right.has(id));
 
 export const FramePages = ({
   excalidrawAPI,
@@ -47,6 +54,13 @@ export const FramePages = ({
       excalidrawAPI.getSceneElements(),
       excalidrawAPI.getAppState().selectedElementIds,
     ),
+  );
+  const [selectedFrameIds, setSelectedFrameIds] = useState<ReadonlySet<string>>(
+    () =>
+      resolveSelectedFrameIds(
+        excalidrawAPI.getSceneElements(),
+        excalidrawAPI.getAppState().selectedElementIds,
+      ),
   );
   const [showSizes, setShowSizes] = useState(false);
   const [customSize, setCustomSize] = useState({
@@ -74,7 +88,19 @@ export const FramePages = ({
         snapshot.elements,
         snapshot.selectedElementIds,
       );
+      const nextSelectedFrameIds = resolveSelectedFrameIds(
+        snapshot.elements,
+        snapshot.selectedElementIds,
+      );
+      setSelectedFrameIds((previousIds) =>
+        areIdSetsEqual(previousIds, nextSelectedFrameIds)
+          ? previousIds
+          : nextSelectedFrameIds,
+      );
       setSelectedFrameId((previousFrameId) => {
+        if (previousFrameId && nextSelectedFrameIds.has(previousFrameId)) {
+          return previousFrameId;
+        }
         if (nextSelectedFrameId) {
           return nextSelectedFrameId;
         }
@@ -86,11 +112,48 @@ export const FramePages = ({
     });
   }, [sceneLifecycle]);
 
-  const selectFrame = (frame: NonDeleted<ExcalidrawFrameElement>) => {
+  const selectFrame = (
+    frame: NonDeleted<ExcalidrawFrameElement>,
+    additive: boolean,
+  ) => {
     setSelectedFrameId(frame.id);
     setShowSizes(false);
+    const elements = excalidrawAPI.getSceneElements();
+    const currentSelection = excalidrawAPI.getAppState().selectedElementIds;
+    const currentlySelectedFrameIds = resolveSelectedFrameIds(
+      elements,
+      currentSelection,
+    );
+    const nextSelection = additive ? { ...currentSelection } : {};
+    if (
+      additive &&
+      !currentlySelectedFrameIds.has(frame.id) &&
+      currentlySelectedFrameIds.size >= MAX_AI_CONTEXT_FRAMES
+    ) {
+      excalidrawAPI.setToast({
+        message: `Use up to ${MAX_AI_CONTEXT_FRAMES} frames as AI context.`,
+      });
+      excalidrawAPI.setViewport({
+        target: [frame],
+        fit: "scale-down",
+        animation: true,
+        offsets: { ui: true },
+      });
+      return;
+    }
+    if (additive && currentlySelectedFrameIds.has(frame.id)) {
+      for (const element of elements) {
+        const selectedFrameId =
+          element.type === "frame" ? element.id : element.frameId;
+        if (selectedFrameId === frame.id) {
+          delete nextSelection[element.id];
+        }
+      }
+    } else {
+      nextSelection[frame.id] = true;
+    }
     excalidrawAPI.updateScene({
-      appState: { selectedElementIds: { [frame.id]: true } },
+      appState: { selectedElementIds: nextSelection },
       captureUpdate: CaptureUpdateAction.NEVER,
     });
     excalidrawAPI.setViewport({
@@ -169,8 +232,11 @@ export const FramePages = ({
               frame.width,
             )} by ${Math.round(frame.height)}`}
             aria-current={frame.id === selectedFrameId ? "page" : undefined}
-            title={frame.name || `Frame ${index + 1}`}
-            onClick={() => selectFrame(frame)}
+            aria-pressed={selectedFrameIds.has(frame.id)}
+            title={`${
+              frame.name || `Frame ${index + 1}`
+            } · Shift-click to add as AI context`}
+            onClick={(event) => selectFrame(frame, event.shiftKey)}
           >
             <span
               className="frank-pages__ratio"
