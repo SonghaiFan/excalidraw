@@ -71,7 +71,13 @@ import type { ResolutionType } from "@excalidraw/common/utility-types";
 import type { ResolvablePromise } from "@excalidraw/common/utils";
 
 import CustomStats from "./CustomStats";
+import { FramePages } from "./frame-pages";
 import { FrameRecorder } from "./frame-recorder";
+import {
+  clampFrameDimension,
+  FRAME_PRESETS,
+  type FramePreset,
+} from "./frank/frame-utils";
 import {
   areElementsUnchanged,
   FrankSceneLifecycle,
@@ -198,18 +204,6 @@ type AIMessage = {
 
 type AIProvider = "deepseek" | "openai";
 
-const AI_FRAME_PRESETS = {
-  portrait: { label: "Portrait · 4:5", width: 1080, height: 1350 },
-  square: { label: "Square · 1:1", width: 1080, height: 1080 },
-  story: { label: "Story · 9:16", width: 1080, height: 1920 },
-  landscape: { label: "Landscape · 16:9", width: 1600, height: 900 },
-} as const;
-
-type AIFramePreset = keyof typeof AI_FRAME_PRESETS | "custom";
-
-const clampFrameDimension = (value: string, fallback: number) =>
-  Math.min(3000, Math.max(480, Number(value) || fallback));
-
 const AICanvasPrompt = ({
   excalidrawAPI,
   sceneLifecycle,
@@ -230,7 +224,7 @@ const AICanvasPrompt = ({
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [framePreset, setFramePreset] = useState<AIFramePreset>("portrait");
+  const [framePreset, setFramePreset] = useState<FramePreset>("portrait");
   const [customFrameSize, setCustomFrameSize] = useState({
     width: "1080",
     height: "1350",
@@ -303,7 +297,7 @@ const AICanvasPrompt = ({
           width: clampFrameDimension(customFrameSize.width, 1080),
           height: clampFrameDimension(customFrameSize.height, 1350),
         }
-      : AI_FRAME_PRESETS[framePreset];
+      : FRAME_PRESETS[framePreset];
 
   const createResponseRenderer = (
     question: string,
@@ -781,10 +775,10 @@ const AICanvasPrompt = ({
                 aria-label="Frame format"
                 value={framePreset}
                 onChange={(event) =>
-                  setFramePreset(event.target.value as AIFramePreset)
+                  setFramePreset(event.target.value as FramePreset)
                 }
               >
-                {Object.entries(AI_FRAME_PRESETS).map(([value, preset]) => (
+                {Object.entries(FRAME_PRESETS).map(([value, preset]) => (
                   <option key={value} value={value}>
                     {preset.label} · {preset.width}×{preset.height}
                   </option>
@@ -912,27 +906,34 @@ const CanvasToolDock = ({
   }, [sceneLifecycle]);
 
   return (
-    <div
-      className={`frank-dock frank-dock--${theme}`}
-      aria-label="Canvas tools"
-    >
-      <AICanvasPrompt
+    <>
+      <FramePages
         excalidrawAPI={excalidrawAPI}
         sceneLifecycle={sceneLifecycle}
         theme={theme}
-        isOpen={activeTool === "ai"}
-        onOpen={() => setActiveTool("ai")}
-        onClose={() => setActiveTool(null)}
       />
-      <FrameRecorder
-        excalidrawAPI={excalidrawAPI}
-        sceneLifecycle={sceneLifecycle}
-        theme={theme}
-        isOpen={activeTool === "recording"}
-        onOpen={() => setActiveTool("recording")}
-        onClose={() => setActiveTool(null)}
-      />
-    </div>
+      <div
+        className={`frank-dock frank-dock--${theme}`}
+        aria-label="Canvas tools"
+      >
+        <AICanvasPrompt
+          excalidrawAPI={excalidrawAPI}
+          sceneLifecycle={sceneLifecycle}
+          theme={theme}
+          isOpen={activeTool === "ai"}
+          onOpen={() => setActiveTool("ai")}
+          onClose={() => setActiveTool(null)}
+        />
+        <FrameRecorder
+          excalidrawAPI={excalidrawAPI}
+          sceneLifecycle={sceneLifecycle}
+          theme={theme}
+          isOpen={activeTool === "recording"}
+          onOpen={() => setActiveTool("recording")}
+          onClose={() => setActiveTool(null)}
+        />
+      </div>
+    </>
   );
 };
 

@@ -9,13 +9,16 @@ import {
   clampCameraPosition,
   formatRecordingTime,
   getFrameSceneSignature,
-  getFramePlaybackIndex,
   getRecorderMimeType,
   getRecordingDownloadMetadata,
   getRecordingDimensions,
   getRecordingLayoutRects,
-  sortFramesForPlayback,
 } from "./frame-recorder";
+import {
+  getNextFramePosition,
+  resolveSelectedFrameId,
+  sortFramesForPlayback,
+} from "./frank/frame-utils";
 
 describe("frame recorder", () => {
   it("formats a stable recording timer", () => {
@@ -133,13 +136,25 @@ describe("frame recorder", () => {
     );
   });
 
-  it("keeps the playback index aligned when an earlier frame is removed", () => {
+  it("resolves a selected child to its page frame", () => {
+    const elements = [
+      { id: "frame", type: "frame", frameId: null, isDeleted: false },
+      { id: "child", type: "text", frameId: "frame", isDeleted: false },
+    ] as unknown as ExcalidrawFrameElement[];
+
+    expect(resolveSelectedFrameId(elements, { child: true })).toBe("frame");
+  });
+
+  it("places a new page after the rightmost frame in the current row", () => {
     const frames = [
-      { id: "page-2" },
-      { id: "page-3" },
+      { id: "page-1", x: 0, y: 0, width: 100, height: 200 },
+      { id: "page-2", x: 200, y: 0, width: 100, height: 200 },
+      { id: "other-row", x: 900, y: 400, width: 100, height: 200 },
     ] as NonDeleted<ExcalidrawFrameElement>[];
 
-    expect(getFramePlaybackIndex(frames, "page-3")).toBe(1);
-    expect(getFramePlaybackIndex(frames, "removed-page")).toBe(0);
+    expect(getNextFramePosition(frames, frames[0], 50)).toEqual({
+      x: 350,
+      y: 0,
+    });
   });
 });

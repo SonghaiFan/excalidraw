@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type {
+  AppState,
+  ExcalidrawImperativeAPI,
+} from "@excalidraw/excalidraw/types";
 
 import {
   areElementsUnchanged,
@@ -53,9 +56,12 @@ describe("classifySceneTransition", () => {
     lifecycle.stop();
     lifecycle.start();
     scene = [element("a", true)];
-    (onChange as unknown as (elements: readonly ExcalidrawElement[]) => void)(
-      scene,
-    );
+    (
+      onChange as unknown as (
+        elements: readonly ExcalidrawElement[],
+        appState: AppState,
+      ) => void
+    )(scene, { selectedElementIds: {} } as AppState);
 
     expect(transitions).toEqual(["clear"]);
   });

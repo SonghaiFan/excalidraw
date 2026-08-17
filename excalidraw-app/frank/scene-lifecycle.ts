@@ -1,11 +1,15 @@
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type {
+  AppState,
+  ExcalidrawImperativeAPI,
+} from "@excalidraw/excalidraw/types";
 
 export type FrankSceneTransition = "incremental" | "clear" | "replace";
 
 export type FrankSceneSnapshot = {
   elements: readonly ExcalidrawElement[];
   activeElementIds: ReadonlySet<string>;
+  selectedElementIds: AppState["selectedElementIds"];
   transition: FrankSceneTransition;
 };
 
@@ -79,11 +83,12 @@ export class FrankSceneLifecycle {
     this.activeElementIds = getActiveElementIds(
       this.excalidrawAPI.getSceneElementsIncludingDeleted(),
     );
-    this.unsubscribe = this.excalidrawAPI.onChange((elements) => {
+    this.unsubscribe = this.excalidrawAPI.onChange((elements, appState) => {
       const activeElementIds = getActiveElementIds(elements);
       const snapshot: FrankSceneSnapshot = {
         elements,
         activeElementIds,
+        selectedElementIds: appState.selectedElementIds,
         transition: classifySceneTransition(
           this.activeElementIds,
           activeElementIds,

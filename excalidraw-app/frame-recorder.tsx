@@ -3,8 +3,6 @@ import {
   sceneCoordsToViewportCoords,
 } from "@excalidraw/excalidraw";
 import {
-  chevronLeftIcon,
-  chevronRight,
   CloseIcon,
   settingsIcon,
 } from "@excalidraw/excalidraw/components/icons";
@@ -21,6 +19,11 @@ import type {
   AppState,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
+
+import {
+  resolveSelectedFrameId,
+  sortFramesForPlayback,
+} from "./frank/frame-utils";
 
 import type { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 
@@ -168,23 +171,6 @@ export const getRecordingLayoutRects = (
   } as const;
 };
 
-export const sortFramesForPlayback = (
-  frames: readonly NonDeleted<ExcalidrawFrameElement>[],
-) =>
-  [...frames].sort((a, b) => {
-    const sameRow = Math.abs(a.y - b.y) < Math.min(a.height, b.height) * 0.25;
-    return sameRow ? a.x - b.x : a.y - b.y;
-  });
-
-export const getFramePlaybackIndex = (
-  frames: readonly NonDeleted<ExcalidrawFrameElement>[],
-  frameId: string | null,
-) =>
-  Math.max(
-    0,
-    frames.findIndex((frame) => frame.id === frameId),
-  );
-
 export const getFrameSceneSignature = (
   elements: readonly ExcalidrawElement[],
   frameId: string,
@@ -316,7 +302,6 @@ export const FrameRecorder = ({
   const [frames, setFrames] = useState<NonDeleted<ExcalidrawFrameElement>[]>(
     [],
   );
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [showSettings, setShowSettings] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -343,6 +328,10 @@ export const FrameRecorder = ({
   const layoutRef = useRef<RecorderLayout>(recorderSettings.layout);
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordedSecondsRef = useRef(0);
+  const recordingDimensionsRef = useRef<{
+    width: number;
+    height: number;
+  } | null>(null);
   const currentFrameIdRef = useRef<string | null>(null);
   const isOpenRef = useRef(isOpen);
   const statusRef = useRef(status);
@@ -357,7 +346,7 @@ export const FrameRecorder = ({
   onCloseRef.current = onClose;
 
   const getCurrentFrame = () => {
-    const id = currentFrameIdRef.current || frames[currentIndex]?.id;
+    const id = currentFrameIdRef.current || frames[0]?.id;
     if (!id) {
       return null;
     }
@@ -372,7 +361,8 @@ export const FrameRecorder = ({
     if (!captureCanvas) {
       return null;
     }
-    const dimensions = getRecordingDimensions(frame);
+    const dimensions =
+      recordingDimensionsRef.current || getRecordingDimensions(frame);
     if (
       captureCanvas.width !== dimensions.width ||
       captureCanvas.height !== dimensions.height
@@ -388,42 +378,15 @@ export const FrameRecorder = ({
       excalidrawAPI.getSceneElements().filter(isFrameElement),
     );
     setFrames(nextFrames);
-    const selectedIds = excalidrawAPI.getAppState().selectedElementIds;
-    const selectedIndex = nextFrames.findIndex(
-      (frame) => selectedIds[frame.id],
+    const selectedFrameId = resolveSelectedFrameId(
+      excalidrawAPI.getSceneElements(),
+      excalidrawAPI.getAppState().selectedElementIds,
     );
-    const index = selectedIndex >= 0 ? selectedIndex : 0;
-    setCurrentIndex(index);
-    currentFrameIdRef.current = nextFrames[index]?.id || null;
+    currentFrameIdRef.current =
+      nextFrames.find((frame) => frame.id === selectedFrameId)?.id ||
+      nextFrames[0]?.id ||
+      null;
     return nextFrames;
-  };
-
-  const selectFrame = (index: number) => {
-    if (!frames.length) {
-      return;
-    }
-    const nextIndex = (index + frames.length) % frames.length;
-    const frameId = frames[nextIndex].id;
-    const frame = excalidrawAPI
-      .getSceneElements()
-      .find((element) => element.id === frameId);
-    if (!frame || !isFrameElement(frame)) {
-      refreshFrames();
-      return;
-    }
-    setCurrentIndex(nextIndex);
-    currentFrameIdRef.current = frameId;
-    frameCanvasRef.current = null;
-    frameSceneSignatureRef.current = "";
-    frameAppearanceRef.current = "";
-    resizeCaptureCanvas(frame);
-    void refreshFrameCanvas();
-    excalidrawAPI.setViewport({
-      target: [frame],
-      fit: "scale-down",
-      animation: status === "idle" || status === "preview",
-      offsets: { ui: true },
-    });
   };
 
   const setCameraPosition = (position: CameraPosition) => {
@@ -735,13 +698,16 @@ export const FrameRecorder = ({
         return;
       }
 
+      recordingDimensionsRef.current = getRecordingDimensions(recordingFrame);
       const captureCanvas = resizeCaptureCanvas(recordingFrame);
       if (!captureCanvas) {
+        recordingDimensionsRef.current = null;
         return;
       }
       drawRecordingFrame();
 
       if (typeof captureCanvas.captureStream !== "function") {
+        recordingDimensionsRef.current = null;
         excalidrawAPI.setToast({
           message: "Frame recording is not supported by this browser.",
         });
@@ -802,10 +768,15 @@ export const FrameRecorder = ({
         recordingStream.getTracks().forEach((track) => track.stop());
         recordingStreamRef.current = null;
         recorderRef.current = null;
+        recordingDimensionsRef.current = null;
         chunksRef.current = [];
         recordedSecondsRef.current = 0;
         setElapsedSeconds(0);
         setStatus(mediaStreamRef.current ? "preview" : "idle");
+        const currentFrame = getCurrentFrame();
+        if (currentFrame) {
+          resizeCaptureCanvas(currentFrame);
+        }
       };
       recordedSecondsRef.current = 0;
       recordingStartedAtRef.current = Date.now();
@@ -813,6 +784,9 @@ export const FrameRecorder = ({
       recorder.start(1000);
       setStatus("recording");
     } finally {
+      if (!recorderRef.current) {
+        recordingDimensionsRef.current = null;
+      }
       recordingStartPendingRef.current = false;
     }
   };
@@ -861,6 +835,7 @@ export const FrameRecorder = ({
     }
     stopRenderLoop();
     if (!isFinalizingRecording) {
+      recordingDimensionsRef.current = null;
       recordingStartedAtRef.current = null;
       recordedSecondsRef.current = 0;
       setElapsedSeconds(0);
@@ -943,7 +918,7 @@ export const FrameRecorder = ({
             !element.isDeleted && isFrameElement(element),
         ),
       );
-      const currentFrameId = currentFrameIdRef.current;
+      let currentFrameId = currentFrameIdRef.current;
       if (currentFrameId && !snapshot.activeElementIds.has(currentFrameId)) {
         const hadActiveMedia =
           statusRef.current !== "idle" || previewPromiseRef.current !== null;
@@ -954,10 +929,27 @@ export const FrameRecorder = ({
           });
         }
         currentFrameIdRef.current = nextFrames[0]?.id || null;
-        setCurrentIndex(0);
+        currentFrameId = currentFrameIdRef.current;
         if (!nextFrames.length) {
           onCloseRef.current();
         }
+      }
+
+      const selectedFrameId = resolveSelectedFrameId(
+        snapshot.elements,
+        snapshot.selectedElementIds,
+      );
+      const selectedFrame = nextFrames.find(
+        (frame) => frame.id === selectedFrameId,
+      );
+      if (selectedFrame && selectedFrame.id !== currentFrameId) {
+        currentFrameIdRef.current = selectedFrame.id;
+        currentFrameId = selectedFrame.id;
+        frameCanvasRef.current = null;
+        frameSceneSignatureRef.current = "";
+        frameAppearanceRef.current = "";
+        resizeCaptureCanvas(selectedFrame);
+        scheduleFrameCanvasRefreshRef.current();
       }
 
       if (currentFrameId && snapshot.activeElementIds.has(currentFrameId)) {
@@ -974,10 +966,6 @@ export const FrameRecorder = ({
           scheduleFrameCanvasRefreshRef.current();
         }
       }
-
-      setCurrentIndex(
-        getFramePlaybackIndex(nextFrames, currentFrameIdRef.current),
-      );
 
       setFrames((previousFrames) => {
         const didFrameListChange =
@@ -1137,53 +1125,24 @@ export const FrameRecorder = ({
             role="toolbar"
             aria-label="Frame recorder"
           >
-            <span
-              className={`frank-recorder__status frank-recorder__status--${status}`}
-              role="status"
-            >
-              <i aria-hidden="true" />
-              {status === "recording"
-                ? "REC"
-                : status === "paused"
-                ? "PAUSED"
-                : status === "preview"
-                ? "PREVIEW"
-                : "READY"}
-              {(status === "recording" || status === "paused") && (
+            {status === "recording" || status === "paused" ? (
+              <span
+                className={`frank-recorder__status frank-recorder__status--${status}`}
+                role="status"
+              >
+                <i aria-hidden="true" />
+                {status === "recording" ? "REC" : "PAUSED"}
                 <time>{formatRecordingTime(elapsedSeconds)}</time>
-              )}
-            </span>
-            {frames.length ? (
-              <>
-                <button
-                  type="button"
-                  aria-label="Previous frame"
-                  disabled={frames.length < 2}
-                  onClick={() => selectFrame(currentIndex - 1)}
-                >
-                  {chevronLeftIcon}
-                </button>
-                <span className="frank-recorder__count" aria-live="polite">
-                  Frame {currentIndex + 1} of {frames.length}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Next frame"
-                  disabled={frames.length < 2}
-                  onClick={() => selectFrame(currentIndex + 1)}
-                >
-                  {chevronRight}
-                </button>
-                {status === "idle" || status === "preview" ? (
-                  <button
-                    className="frank-recorder__record"
-                    type="button"
-                    onClick={startRecording}
-                  >
-                    <span aria-hidden="true" /> Start recording
-                  </button>
-                ) : null}
-              </>
+              </span>
+            ) : null}
+            {frames.length && (status === "idle" || status === "preview") ? (
+              <button
+                className="frank-recorder__record"
+                type="button"
+                onClick={startRecording}
+              >
+                <span aria-hidden="true" /> Start recording
+              </button>
             ) : null}
             {status === "recording" || status === "paused" ? (
               <>
