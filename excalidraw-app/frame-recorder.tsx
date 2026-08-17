@@ -21,6 +21,7 @@ import type {
 } from "@excalidraw/excalidraw/types";
 
 import {
+  isKeyboardInputTarget,
   resolveSelectedFrameId,
   sortFramesForPlayback,
 } from "./frank/frame-utils";
@@ -55,6 +56,45 @@ const AUDIO_SYNC_SMOOTHING = 0.16;
 const DEFAULT_CAMERA_SIZE = 0.18;
 const RECORDER_SETTINGS_KEY = "frank-canvas-recorder-settings";
 const DEFAULT_RECORDER_LAYOUT: RecorderLayout = "split";
+const FRAME_LAYOUT_SHORTCUTS: readonly RecorderLayout[] = [
+  "full-camera",
+  "split",
+  "canvas-pip",
+];
+
+export const getFrameLayoutShortcut = ({
+  code,
+  altKey,
+  ctrlKey,
+  metaKey,
+  shiftKey,
+}: Pick<
+  KeyboardEvent,
+  "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
+>): RecorderLayout | null => {
+  if (!altKey || ctrlKey || metaKey || shiftKey) {
+    return null;
+  }
+  const index = ["Digit1", "Digit2", "Digit3"].indexOf(code);
+  return FRAME_LAYOUT_SHORTCUTS[index] || null;
+};
+
+export const getRepeatedSplitPosition = (
+  currentLayout: RecorderLayout,
+  shortcutLayout: RecorderLayout,
+  currentPosition: SplitPosition,
+) =>
+  currentLayout === "split" && shortcutLayout === "split"
+    ? currentPosition === "top"
+      ? "bottom"
+      : "top"
+    : null;
+
+export const canSwitchRecorderMode = (
+  currentScope: RecorderScope,
+  nextScope: RecorderScope,
+  isActiveRecording: boolean,
+) => !isActiveRecording || currentScope === nextScope;
 
 const RECORDER_MODES: readonly {
   scope: RecorderScope;
@@ -790,6 +830,12 @@ export const FrameRecorder = ({
   const stopPreviewRef = useRef<() => void>(() => {});
   const scheduleFrameCanvasRefreshRef = useRef<() => void>(() => {});
   const drawRecordingFrameRef = useRef<() => void>(() => {});
+  const setRecorderModeRef = useRef<
+    (scope: RecorderScope, layout: RecorderLayout) => void
+  >(() => {});
+  const setSplitPositionRef = useRef<(position: SplitPosition) => void>(
+    () => {},
+  );
   const onCloseRef = useRef(onClose);
   isOpenRef.current = isOpen;
   statusRef.current = status;
@@ -976,7 +1022,9 @@ export const FrameRecorder = ({
   };
 
   const setRecorderMode = (scope: RecorderScope, layout: RecorderLayout) => {
-    if (statusRef.current === "recording" || statusRef.current === "paused") {
+    const isActiveRecording =
+      statusRef.current === "recording" || statusRef.current === "paused";
+    if (!canSwitchRecorderMode(scopeRef.current, scope, isActiveRecording)) {
       return;
     }
     scopeRef.current = scope;
@@ -990,19 +1038,21 @@ export const FrameRecorder = ({
       resizeCaptureCanvas(source);
     }
     updateRecordingOverlay(excalidrawAPI.getAppState());
-    if (shouldRefreshRecordingExport(scope, layout, false)) {
+    if (shouldRefreshRecordingExport(scope, layout, isActiveRecording)) {
       scheduleFrameCanvasRefreshRef.current();
     }
     if (isOpenRef.current && !mediaStreamRef.current) {
       void startPreview();
     }
   };
+  setRecorderModeRef.current = setRecorderMode;
 
   const setSplitPosition = (splitPosition: SplitPosition) => {
     splitPositionRef.current = splitPosition;
     setRecorderSettings((settings) => ({ ...settings, splitPosition }));
     updateRecordingOverlay(excalidrawAPI.getAppState());
   };
+  setSplitPositionRef.current = setSplitPosition;
 
   const setSplitRatio = (splitRatio: number) => {
     splitRatioRef.current = splitRatio;
@@ -1779,6 +1829,36 @@ export const FrameRecorder = ({
   }, [excalidrawAPI, sceneLifecycle]);
 
   useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const switchFrameLayout = (event: KeyboardEvent) => {
+      const layout = getFrameLayoutShortcut(event);
+      if (
+        !layout ||
+        scopeRef.current !== "frame" ||
+        isKeyboardInputTarget(event.target)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const nextSplitPosition = getRepeatedSplitPosition(
+        layoutRef.current,
+        layout,
+        splitPositionRef.current,
+      );
+      if (nextSplitPosition) {
+        setSplitPositionRef.current(nextSplitPosition);
+      } else {
+        setRecorderModeRef.current("frame", layout);
+      }
+    };
+    window.addEventListener("keydown", switchFrameLayout, true);
+    return () => window.removeEventListener("keydown", switchFrameLayout, true);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (status !== "recording") {
       return;
     }
@@ -1853,7 +1933,7 @@ export const FrameRecorder = ({
               role="group"
               aria-label="Choose a recording mode"
             >
-              {RECORDER_MODES.map(({ scope, value, label }) => (
+              {RECORDER_MODES.map(({ scope, value, label }, index) => (
                 <button
                   key={`${scope}-${value}`}
                   type="button"
@@ -1864,11 +1944,27 @@ export const FrameRecorder = ({
                       ? recorderSettings.splitPosition
                       : undefined
                   }
-                  disabled={settingsLocked}
+                  disabled={
+                    !canSwitchRecorderMode(
+                      recorderSettings.scope,
+                      scope,
+                      settingsLocked,
+                    )
+                  }
                   aria-label={label}
+                  aria-keyshortcuts={
+                    scope === "frame" ? `Alt+${index + 1}` : undefined
+                  }
                   aria-pressed={
                     recorderSettings.scope === scope &&
                     recorderSettings.layout === value
+                  }
+                  title={
+                    scope === "frame"
+                      ? `${label} · ⌥${index + 1}${
+                          value === "split" ? " · repeat to flip" : ""
+                        }`
+                      : label
                   }
                   onClick={() => setRecorderMode(scope, value)}
                 >
@@ -1895,7 +1991,6 @@ export const FrameRecorder = ({
                   >
                     <button
                       type="button"
-                      disabled={settingsLocked}
                       aria-pressed={recorderSettings.splitPosition === "top"}
                       onClick={() => setSplitPosition("top")}
                     >
@@ -1903,7 +1998,6 @@ export const FrameRecorder = ({
                     </button>
                     <button
                       type="button"
-                      disabled={settingsLocked}
                       aria-pressed={recorderSettings.splitPosition === "bottom"}
                       onClick={() => setSplitPosition("bottom")}
                     >
@@ -2052,9 +2146,6 @@ export const FrameRecorder = ({
           aria-pressed={isOpen}
           onClick={isOpen ? closeRecorder : openRecorder}
         >
-          <span className="frank-dock__index" aria-hidden="true">
-            02
-          </span>
           <span>Recording</span>
         </button>
       </div>

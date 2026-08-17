@@ -13,6 +13,30 @@ export const FRAME_PRESETS = {
 
 export type FramePreset = keyof typeof FRAME_PRESETS | "custom";
 
+export const isKeyboardInputTarget = (target: EventTarget | null) =>
+  target instanceof Element &&
+  Boolean(
+    target.closest(
+      'input, textarea, select, [contenteditable="true"], [role="textbox"]',
+    ),
+  );
+
+export const getFrameNavigationDelta = ({
+  key,
+  altKey,
+  ctrlKey,
+  metaKey,
+  shiftKey,
+}: Pick<
+  KeyboardEvent,
+  "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
+>) => {
+  if (altKey || ctrlKey || metaKey || shiftKey) {
+    return 0;
+  }
+  return key === "ArrowLeft" ? -1 : key === "ArrowRight" ? 1 : 0;
+};
+
 export const clampFrameDimension = (value: string, fallback: number) =>
   Math.min(3000, Math.max(480, Number(value) || fallback));
 

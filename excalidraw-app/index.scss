@@ -129,10 +129,9 @@
     }
 
     .frank-dock__trigger {
-      display: grid;
-      grid-template-columns: auto 1fr;
+      display: flex;
       align-items: center;
-      gap: 0.8rem;
+      justify-content: center;
       width: 100%;
       min-width: 0;
       height: 3rem;
@@ -144,7 +143,7 @@
       color: var(--frank-ink);
       box-shadow: none;
       font: 500 0.78rem/1 Helvetica, Arial, sans-serif;
-      text-align: left;
+      text-align: center;
       cursor: pointer;
       pointer-events: auto;
 
@@ -161,12 +160,6 @@
         outline: 1px solid var(--frank-blue);
         outline-offset: -3px;
       }
-    }
-
-    &__index {
-      color: #777772;
-      font: 500 0.52rem/1 Helvetica, Arial, sans-serif;
-      letter-spacing: 0.14em;
     }
 
     &--dark {
@@ -191,10 +184,6 @@
           background: #171717;
           color: #ffffff;
         }
-      }
-
-      .frank-dock__index {
-        color: #858585;
       }
     }
   }

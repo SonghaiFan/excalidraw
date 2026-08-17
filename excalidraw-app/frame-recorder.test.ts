@@ -6,6 +6,7 @@ import type {
 } from "@excalidraw/element/types";
 
 import {
+  canSwitchRecorderMode,
   clampCameraPosition,
   formatRecordingTime,
   getAudioSyncDelay,
@@ -13,6 +14,8 @@ import {
   getCameraFrameDelay,
   getClipInsets,
   getFrameSceneSignature,
+  getFrameLayoutShortcut,
+  getRepeatedSplitPosition,
   getRecorderMimeType,
   getRecorderTextLines,
   getRecordingDownloadMetadata,
@@ -25,11 +28,53 @@ import {
 } from "./frame-recorder";
 import {
   getNextFramePosition,
+  getFrameNavigationDelta,
   resolveSelectedFrameId,
   sortFramesForPlayback,
 } from "./frank/frame-utils";
 
 describe("frame recorder", () => {
+  it("maps only the intended unmodified keyboard shortcuts", () => {
+    const keyboardEvent = {
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+    };
+
+    expect(
+      getFrameNavigationDelta({ ...keyboardEvent, key: "ArrowLeft" }),
+    ).toBe(-1);
+    expect(
+      getFrameNavigationDelta({ ...keyboardEvent, key: "ArrowRight" }),
+    ).toBe(1);
+    expect(
+      getFrameNavigationDelta({
+        ...keyboardEvent,
+        altKey: true,
+        key: "ArrowRight",
+      }),
+    ).toBe(0);
+    expect(
+      ["Digit1", "Digit2", "Digit3"].map((code) =>
+        getFrameLayoutShortcut({
+          ...keyboardEvent,
+          altKey: true,
+          code,
+        }),
+      ),
+    ).toEqual(["full-camera", "split", "canvas-pip"]);
+    expect(
+      getFrameLayoutShortcut({ ...keyboardEvent, code: "Digit1" }),
+    ).toBeNull();
+    expect(getRepeatedSplitPosition("split", "split", "top")).toBe("bottom");
+    expect(getRepeatedSplitPosition("split", "split", "bottom")).toBe("top");
+    expect(getRepeatedSplitPosition("full-camera", "split", "top")).toBeNull();
+    expect(canSwitchRecorderMode("frame", "frame", true)).toBe(true);
+    expect(canSwitchRecorderMode("frame", "canvas", true)).toBe(false);
+    expect(canSwitchRecorderMode("frame", "canvas", false)).toBe(true);
+  });
+
   it("formats a stable recording timer", () => {
     expect(formatRecordingTime(0)).toBe("00:00");
     expect(formatRecordingTime(65.9)).toBe("01:05");

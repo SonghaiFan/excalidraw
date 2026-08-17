@@ -4,7 +4,7 @@ import {
   viewportCoordsToSceneCoords,
 } from "@excalidraw/excalidraw";
 import { isFrameElement, newFrameElement } from "@excalidraw/element";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   ExcalidrawFrameElement,
@@ -19,7 +19,9 @@ import type {
 import {
   clampFrameDimension,
   FRAME_PRESETS,
+  getFrameNavigationDelta,
   getNextFramePosition,
+  isKeyboardInputTarget,
   resolveSelectedFrameId,
   resolveSelectedFrameIds,
   sortFramesForPlayback,
@@ -67,6 +69,9 @@ export const FramePages = ({
       ),
   );
   const [showSizes, setShowSizes] = useState(false);
+  const selectFrameRef = useRef<
+    (frame: NonDeleted<ExcalidrawFrameElement>, additive: boolean) => void
+  >(() => {});
   const [customSize, setCustomSize] = useState({
     width: "1080",
     height: "1350",
@@ -167,6 +172,7 @@ export const FramePages = ({
       offsets: { ui: true },
     });
   };
+  selectFrameRef.current = selectFrame;
 
   const createFrame = (
     size: { width: number; height: number },
@@ -228,6 +234,36 @@ export const FramePages = ({
 
   const currentFrame =
     frames.find((frame) => frame.id === selectedFrameId) || frames.at(-1);
+
+  useEffect(() => {
+    const navigateFrames = (event: KeyboardEvent) => {
+      const delta = getFrameNavigationDelta(event);
+      if (!delta || !frames.length || isKeyboardInputTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const activeFrameId = resolveSelectedFrameId(
+        excalidrawAPI.getSceneElements(),
+        excalidrawAPI.getAppState().selectedElementIds,
+      );
+      const currentIndex = Math.max(
+        0,
+        frames.findIndex(
+          (frame) => frame.id === (activeFrameId || selectedFrameId),
+        ),
+      );
+      const nextIndex = Math.min(
+        frames.length - 1,
+        Math.max(0, currentIndex + delta),
+      );
+      if (nextIndex !== currentIndex) {
+        selectFrameRef.current(frames[nextIndex], false);
+      }
+    };
+    window.addEventListener("keydown", navigateFrames, true);
+    return () => window.removeEventListener("keydown", navigateFrames, true);
+  }, [excalidrawAPI, frames, selectedFrameId]);
 
   return (
     <nav className={`frank-pages frank-pages--${theme}`} aria-label="Frames">

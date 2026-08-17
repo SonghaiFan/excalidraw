@@ -1039,9 +1039,6 @@ const AICanvasPrompt = ({
         aria-pressed={isOpen}
         onClick={isOpen ? closePrompt : onOpen}
       >
-        <span className="frank-dock__index" aria-hidden="true">
-          01
-        </span>
         <span>AI</span>
       </button>
     </div>
