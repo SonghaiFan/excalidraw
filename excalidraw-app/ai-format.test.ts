@@ -9,6 +9,7 @@ import {
   frameCanvasElements,
   paginateCanvasBlockHeights,
   parseCanvasMarkdown,
+  readAIStream,
 } from "./ai-format";
 
 describe("createIncrementalCanvasMarkdown", () => {
@@ -162,6 +163,16 @@ describe("createAIStreamParser", () => {
 
     expect(parser.finish()).toEqual({ text: "Hello world", done: true });
     expect(updates).toEqual(["Hello", "Hello world"]);
+  });
+
+  it("rejects a transport disconnect instead of accepting partial text", async () => {
+    const updates: string[] = [];
+    const response = new Response('data: {"delta":"Partial answer"}\n\n');
+
+    await expect(
+      readAIStream(response, (text) => updates.push(text)),
+    ).rejects.toThrow("AI connection was interrupted");
+    expect(updates).toEqual(["Partial answer"]);
   });
 });
 

@@ -52,17 +52,35 @@ export const validateAIRequest = (
 
 const createAbortController = (requestSignal: AbortSignal) => {
   const controller = new AbortController();
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   const abort = () => controller.abort();
+  const touch = () => {
+    if (controller.signal.aborted) {
+      return;
+    }
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 60_000);
+  };
   if (requestSignal.aborted) {
     controller.abort();
   } else {
     requestSignal.addEventListener("abort", abort, { once: true });
+    touch();
   }
-  const timeout = setTimeout(abort, 60_000);
   return {
     controller,
+    didTimeOut: () => timedOut,
+    touch,
     dispose: () => {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
       requestSignal.removeEventListener("abort", abort);
     },
   };
@@ -137,6 +155,9 @@ export const handleFrankAIRequest = async (
     );
   } catch (error) {
     abort.dispose();
+    if (abort.didTimeOut()) {
+      return jsonResponse(504, "AI provider timed out");
+    }
     if (abort.controller.signal.aborted) {
       return jsonResponse(499, "AI request was cancelled");
     }
@@ -157,6 +178,7 @@ export const handleFrankAIRequest = async (
     return jsonResponse(502, "AI response stream is unavailable");
   }
 
+  abort.touch();
   const reader = providerResponse.body.getReader();
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -211,6 +233,7 @@ export const handleFrankAIRequest = async (
           if (done) {
             break;
           }
+          abort.touch();
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
@@ -220,10 +243,16 @@ export const handleFrankAIRequest = async (
         if (!finished && buffer.trim()) {
           processLine(buffer.replace(/\r$/, ""));
         }
+        if (!finished) {
+          throw new Error("AI provider stream ended before completion");
+        }
         writeEvent("[DONE]");
         controller.close();
       } catch (error) {
-        if (!abort.controller.signal.aborted) {
+        if (abort.didTimeOut()) {
+          console.error("Frank AI stream timed out", error);
+          writeEvent({ error: "AI response timed out. Please try again." });
+        } else if (!abort.controller.signal.aborted) {
           console.error("Frank AI stream failed", error);
           writeEvent({ error: "AI stream was interrupted" });
         }

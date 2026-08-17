@@ -955,5 +955,8 @@ export const readAIStream = async (
   if (!result.text.trim()) {
     throw new Error("AI returned an empty response");
   }
+  if (!result.done) {
+    throw new Error("AI connection was interrupted. Please try again.");
+  }
   return result.text;
 };
