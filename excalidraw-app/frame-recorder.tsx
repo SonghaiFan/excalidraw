@@ -393,6 +393,225 @@ const fitInside = (
   };
 };
 
+type RecorderTextLine = {
+  end: number;
+  start: number;
+  text: string;
+};
+
+export const getRecorderTextLines = (
+  value: string,
+  maxWidth: number,
+  shouldWrap: boolean,
+  measureText: (value: string) => number,
+): RecorderTextLine[] => {
+  const lines: RecorderTextLine[] = [];
+  let hardLineStart = 0;
+
+  value.split("\n").forEach((hardLine, hardLineIndex, hardLines) => {
+    if (!shouldWrap || maxWidth <= 0 || measureText(hardLine) <= maxWidth) {
+      lines.push({
+        start: hardLineStart,
+        end: hardLineStart + hardLine.length,
+        text: hardLine,
+      });
+    } else {
+      let lineStart = 0;
+      let lineEnd = 0;
+      const pushLine = (start: number, end: number) => {
+        lines.push({
+          start: hardLineStart + start,
+          end: hardLineStart + end,
+          text: hardLine.slice(start, end),
+        });
+      };
+      const pushLongToken = (tokenStart: number, tokenEnd: number) => {
+        let partStart = tokenStart;
+        let partEnd = tokenStart;
+        for (const character of hardLine.slice(tokenStart, tokenEnd)) {
+          const characterEnd = partEnd + character.length;
+          if (
+            partEnd > partStart &&
+            measureText(hardLine.slice(partStart, characterEnd)) > maxWidth
+          ) {
+            pushLine(partStart, partEnd);
+            partStart = partEnd;
+          }
+          partEnd = characterEnd;
+        }
+        lineStart = partStart;
+        lineEnd = partEnd;
+      };
+
+      for (const match of hardLine.matchAll(/\s+|\S+/gu)) {
+        const tokenStart = match.index;
+        const tokenEnd = tokenStart + match[0].length;
+        const tokenWidth = measureText(match[0]);
+        if (
+          lineEnd > lineStart &&
+          measureText(hardLine.slice(lineStart, tokenEnd)) > maxWidth
+        ) {
+          pushLine(lineStart, tokenStart);
+          lineStart = tokenStart;
+          lineEnd = tokenStart;
+        }
+        if (tokenWidth > maxWidth) {
+          pushLongToken(tokenStart, tokenEnd);
+        } else {
+          lineEnd = tokenEnd;
+        }
+      }
+
+      pushLine(lineStart, lineEnd);
+    }
+
+    hardLineStart += hardLine.length;
+    if (hardLineIndex < hardLines.length - 1) {
+      hardLineStart += 1;
+    }
+  });
+
+  return lines;
+};
+
+const getCssPixel = (value: string | undefined, fallback = 0) => {
+  const parsed = Number.parseFloat(value || "");
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const drawNativeTextEditor = (
+  context: CanvasRenderingContext2D,
+  destination: ViewportRect,
+  frameRect: ViewportRect,
+) => {
+  const editor = document.querySelector<HTMLTextAreaElement>(
+    ".excalidraw-app .excalidraw-wysiwyg",
+  );
+  if (!editor || !editor.offsetParent || !editor.value) {
+    return;
+  }
+
+  const style = window.getComputedStyle(editor);
+  const parentRect = editor.offsetParent.getBoundingClientRect();
+  const editorWidth = editor.offsetWidth;
+  const editorHeight = editor.offsetHeight;
+  if (editorWidth <= 0 || editorHeight <= 0) {
+    return;
+  }
+
+  const fitted = fitInside(
+    frameRect.width,
+    frameRect.height,
+    destination.width,
+    destination.height,
+  );
+  const target = {
+    x: destination.x + fitted.x,
+    y: destination.y + fitted.y,
+    width: fitted.width,
+    height: fitted.height,
+  };
+  const transformOrigin = style.transformOrigin.split(" ");
+  const originX = getCssPixel(transformOrigin[0], editorWidth / 2);
+  const originY = getCssPixel(transformOrigin[1], editorHeight / 2);
+  const transform = new DOMMatrix(
+    style.transform === "none" ? undefined : style.transform,
+  );
+  const viewportScaleX = target.width / frameRect.width;
+  const viewportScaleY = target.height / frameRect.height;
+  const fontSize = getCssPixel(style.fontSize, 20);
+  const lineHeight = getCssPixel(style.lineHeight, fontSize * 1.2);
+
+  context.save();
+  context.beginPath();
+  context.rect(target.x, target.y, target.width, target.height);
+  context.clip();
+  context.translate(
+    target.x - frameRect.x * viewportScaleX,
+    target.y - frameRect.y * viewportScaleY,
+  );
+  context.scale(viewportScaleX, viewportScaleY);
+  context.translate(
+    parentRect.left + editor.offsetLeft + originX,
+    parentRect.top + editor.offsetTop + originY,
+  );
+  context.transform(
+    transform.a,
+    transform.b,
+    transform.c,
+    transform.d,
+    transform.e,
+    transform.f,
+  );
+  context.translate(-originX, -originY);
+  context.beginPath();
+  context.rect(0, 0, editorWidth, editorHeight);
+  context.clip();
+
+  context.globalAlpha = getCssPixel(style.opacity, 1);
+  context.fillStyle = style.color;
+  context.font =
+    style.font ||
+    `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  context.textAlign = style.textAlign as CanvasTextAlign;
+  context.textBaseline = "alphabetic";
+  context.direction = style.direction as CanvasDirection;
+
+  const lines = getRecorderTextLines(
+    editor.value,
+    editor.clientWidth,
+    style.whiteSpace !== "pre",
+    (value) => context.measureText(value).width,
+  );
+  const metrics = context.measureText("Mg");
+  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.8;
+  const lineTopOffset = Math.max(0, (lineHeight - fontSize) / 2);
+  const alignedX =
+    style.textAlign === "center"
+      ? editor.clientWidth / 2
+      : style.textAlign === "right" || style.textAlign === "end"
+      ? editor.clientWidth
+      : 0;
+
+  lines.forEach((line, index) => {
+    const baseline = index * lineHeight + lineTopOffset + ascent;
+    context.fillText(line.text, alignedX, baseline);
+  });
+
+  const caretIndex = editor.selectionStart;
+  const caretLineIndex = lines.findIndex(
+    (line, index) =>
+      caretIndex >= line.start &&
+      (caretIndex <= line.end || index === lines.length - 1),
+  );
+  if (
+    document.activeElement === editor &&
+    editor.selectionStart === editor.selectionEnd &&
+    caretLineIndex >= 0 &&
+    Math.floor(performance.now() / 500) % 2 === 0
+  ) {
+    const caretLine = lines[caretLineIndex];
+    const lineWidth = context.measureText(caretLine.text).width;
+    const prefixWidth = context.measureText(
+      editor.value.slice(caretLine.start, caretIndex),
+    ).width;
+    const lineLeft =
+      style.textAlign === "center"
+        ? (editor.clientWidth - lineWidth) / 2
+        : style.textAlign === "right" || style.textAlign === "end"
+        ? editor.clientWidth - lineWidth
+        : 0;
+    const caretX =
+      style.direction === "rtl"
+        ? lineLeft + lineWidth - prefixWidth
+        : lineLeft + prefixWidth;
+    const caretTop = caretLineIndex * lineHeight + lineTopOffset;
+    context.fillRect(caretX, caretTop, 1, fontSize);
+  }
+
+  context.restore();
+};
+
 const drawNativeFrameCanvases = (
   context: CanvasRenderingContext2D,
   destination: ViewportRect,
@@ -945,6 +1164,7 @@ export const FrameRecorder = ({
             frameRect,
             appState.theme,
           );
+          drawNativeTextEditor(context, layout.canvas, frameRect);
         }
         return;
       }

@@ -14,6 +14,7 @@ import {
   getClipInsets,
   getFrameSceneSignature,
   getRecorderMimeType,
+  getRecorderTextLines,
   getRecordingDownloadMetadata,
   getRecordingDimensions,
   getRecordingLayoutRects,
@@ -32,6 +33,25 @@ describe("frame recorder", () => {
   it("formats a stable recording timer", () => {
     expect(formatRecordingTime(0)).toBe("00:00");
     expect(formatRecordingTime(65.9)).toBe("01:05");
+  });
+
+  it("keeps live text input offsets across wrapping and hard lines", () => {
+    expect(
+      getRecorderTextLines("abcd\nef", 3, true, (value) => value.length),
+    ).toEqual([
+      { start: 0, end: 3, text: "abc" },
+      { start: 3, end: 4, text: "d" },
+      { start: 5, end: 7, text: "ef" },
+    ]);
+    expect(
+      getRecorderTextLines("abcd", 2, false, (value) => value.length),
+    ).toEqual([{ start: 0, end: 4, text: "abcd" }]);
+    expect(
+      getRecorderTextLines("hello world", 6, true, (value) => value.length),
+    ).toEqual([
+      { start: 0, end: 6, text: "hello " },
+      { start: 6, end: 11, text: "world" },
+    ]);
   });
 
   it("measures and smooths camera latency for microphone sync", () => {
