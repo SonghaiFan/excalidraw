@@ -93,9 +93,71 @@ describe("Frank AI server", () => {
     );
     expect(providerBody.input?.at(-1)?.content).toContain("Existing idea");
     expect(providerBody.input?.at(-1)?.content).toContain(
-      "User question:\nDraw a plan",
+      "User request:\nDraw a plan",
     );
     expect(requestBody.messages).toEqual(body.messages);
+  });
+
+  it("treats Create as a long, one-shot transformation", async () => {
+    const source = "Long source content. ".repeat(500);
+    expect(
+      validateAIRequest({
+        ...body,
+        intent: "create",
+        messages: [{ role: "user", content: source }],
+      }),
+    ).not.toBeNull();
+    expect(
+      validateAIRequest({
+        ...body,
+        intent: "create",
+        messages: [
+          { role: "user", content: "Earlier source" },
+          { role: "assistant", content: "Earlier result" },
+          { role: "user", content: "New source" },
+        ],
+      }),
+    ).toBeNull();
+
+    let providerBody: {
+      instructions?: string;
+      input?: Array<{ role: string; content: string }>;
+      max_output_tokens?: number;
+    } = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        providerBody = JSON.parse(String(init?.body));
+        return new Response(
+          [
+            'data: {"type":"response.output_text.delta","delta":"# Generated title"}\n\n',
+            'data: {"type":"response.completed"}\n\n',
+          ].join(""),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const response = await handleFrankAIRequest(
+      new Request("http://localhost/api/ai", {
+        method: "POST",
+        body: JSON.stringify({
+          ...body,
+          intent: "create",
+          messages: [{ role: "user", content: source }],
+        }),
+      }),
+    );
+    await response.text();
+
+    expect(providerBody.input).toEqual([{ role: "user", content: source }]);
+    expect(providerBody.instructions).toContain(
+      "Preserve every meaningful fact",
+    );
+    expect(providerBody.instructions).toContain(
+      "exactly one concise level-one Markdown heading",
+    );
+    expect(providerBody.max_output_tokens).toBe(6_000);
   });
 
   it("normalizes the provider stream into Frank Canvas events", async () => {

@@ -126,6 +126,7 @@ import {
   createFormattedCanvasElements,
   createStreamingCanvasBlockElements,
   frameCanvasElements,
+  getCanvasDocumentTitle,
   measureCanvasBlockHeight,
   paginateCanvasBlockHeights,
   parseCanvasMarkdown,
@@ -206,6 +207,7 @@ type AIMessage = {
 };
 
 type AIProvider = "deepseek" | "openai";
+type AIIntent = "ask" | "create";
 
 const AICanvasPrompt = ({
   excalidrawAPI,
@@ -223,9 +225,13 @@ const AICanvasPrompt = ({
   onClose: () => void;
 }) => {
   const [provider, setProvider] = useState<AIProvider>("deepseek");
+  const [intent, setIntent] = useState<AIIntent>("ask");
   const [apiKey, setApiKey] = useState("");
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
-  const [prompt, setPrompt] = useState("");
+  const [drafts, setDrafts] = useState<Record<AIIntent, string>>({
+    ask: "",
+    create: "",
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [framePreset, setFramePreset] = useState<FramePreset>("portrait");
   const [customFrameSize, setCustomFrameSize] = useState({
@@ -249,6 +255,7 @@ const AICanvasPrompt = ({
       isSceneIntact: (activeElementIds: ReadonlySet<string>) => boolean;
     };
   } | null>(null);
+  const prompt = drafts[intent];
 
   const cancelActiveRequest = () => {
     const activeRequest = activeRequestRef.current;
@@ -340,8 +347,8 @@ const AICanvasPrompt = ({
   };
 
   const createResponseRenderer = (
-    question: string,
     responseProvider: AIProvider,
+    responseIntent: AIIntent,
   ) => {
     const appState = excalidrawAPI.getAppState();
     const isDark = appState.theme === "dark";
@@ -369,8 +376,8 @@ const AICanvasPrompt = ({
       );
     const header = createFormattedCanvasElements({
       markdown: "",
-      question,
       provider: responseProvider,
+      intent: responseIntent,
       x: position.x + pagePadding,
       y: position.y + pagePadding,
       isDark,
@@ -459,6 +466,10 @@ const AICanvasPrompt = ({
       nextBlocks.clear();
       const nextFrames: NonDeleted<ExcalidrawFrameElement>[] = [];
       const allElements: NonDeletedExcalidrawElement[] = [];
+      const responseTitle = getCanvasDocumentTitle(
+        blocks.map(({ block }) => block),
+        responseIntent === "create" ? "Frank Canvas" : "Frank response",
+      );
 
       for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
         const pageX = position.x + pageIndex * (pageWidth + pageGap);
@@ -503,7 +514,7 @@ const AICanvasPrompt = ({
         ];
         const framed = frameCanvasElements({
           elements: pageElements,
-          name: `AI / ${question.slice(0, 42)} / FRAME ${pageIndex + 1} OF ${
+          name: `AI / ${responseTitle} / FRAME ${pageIndex + 1} OF ${
             pages.length
           }`,
           isDark,
@@ -572,6 +583,10 @@ const AICanvasPrompt = ({
         return;
       }
       const document = parseCanvasMarkdown(answer);
+      const responseTitle = getCanvasDocumentTitle(
+        document.blocks,
+        responseIntent === "create" ? "Frank Canvas" : "Frank response",
+      );
       const finalBlocks = document.blocks.map((block, id) => ({
         id,
         block,
@@ -603,7 +618,7 @@ const AICanvasPrompt = ({
           );
           const diagramPage = frameCanvasElements({
             elements: placedDiagram,
-            name: `AI / ${question.slice(0, 42)} / DIAGRAM`,
+            name: `AI / ${responseTitle} / DIAGRAM`,
             isDark,
             frame: frames[pageIndex],
             bounds: {
@@ -653,15 +668,18 @@ const AICanvasPrompt = ({
   };
 
   const submitPrompt = async () => {
-    const question = prompt.trim();
-    if (!question || isLoading || (provider === "deepseek" && !apiKey.trim())) {
+    const request = prompt.trim();
+    if (!request || isLoading || (provider === "deepseek" && !apiKey.trim())) {
       return;
     }
 
-    const messages: AIMessage[] = [
-      ...messagesRef.current,
-      { role: "user" as const, content: question },
-    ].slice(-12);
+    const messages: AIMessage[] =
+      intent === "ask"
+        ? [
+            ...messagesRef.current,
+            { role: "user" as const, content: request },
+          ].slice(-12)
+        : [{ role: "user" as const, content: request }];
     const sceneElements = excalidrawAPI.getSceneElements();
     const selectedElementIds = excalidrawAPI.getAppState().selectedElementIds;
     const selectedFrameCount = resolveSelectedFrameIds(
@@ -679,7 +697,7 @@ const AICanvasPrompt = ({
     }
 
     setIsLoading(true);
-    const renderer = createResponseRenderer(question, provider);
+    const renderer = createResponseRenderer(provider, intent);
     const controller = new AbortController();
     const activeRequest = {
       controller,
@@ -715,6 +733,7 @@ const AICanvasPrompt = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider,
+          intent,
           apiKey: apiKey.trim() || undefined,
           messages,
           contextFrames: requestFrameContexts.map(
@@ -736,11 +755,16 @@ const AICanvasPrompt = ({
       }
       finalized = true;
 
-      messagesRef.current = [
-        ...messages,
-        { role: "assistant" as const, content: answer },
-      ].slice(-12);
-      setPrompt("");
+      if (intent === "ask") {
+        messagesRef.current = [
+          ...messages,
+          { role: "assistant" as const, content: answer },
+        ].slice(-12);
+      }
+      setDrafts((currentDrafts) => ({
+        ...currentDrafts,
+        [intent]: "",
+      }));
       setIsLoading(false);
       activeRequestRef.current = null;
       closePrompt();
@@ -772,7 +796,7 @@ const AICanvasPrompt = ({
         <div
           className="frank-ai__panel"
           role="dialog"
-          aria-label="Ask Frank AI"
+          aria-label="Frank AI"
           onKeyDown={(event) => {
             event.stopPropagation();
             if (event.key === "Escape") {
@@ -780,6 +804,24 @@ const AICanvasPrompt = ({
             }
           }}
         >
+          <div className="frank-ai__mode" role="group" aria-label="AI mode">
+            <button
+              type="button"
+              aria-pressed={intent === "ask"}
+              disabled={isLoading}
+              onClick={() => setIntent("ask")}
+            >
+              Ask
+            </button>
+            <button
+              type="button"
+              aria-pressed={intent === "create"}
+              disabled={isLoading}
+              onClick={() => setIntent("create")}
+            >
+              Create
+            </button>
+          </div>
           {frameContexts.length ? (
             <div
               className="frank-ai__context"
@@ -805,7 +847,9 @@ const AICanvasPrompt = ({
           ) : null}
           <div className="frank-ai__composer">
             <label className="visually-hidden" htmlFor="frank-ai-prompt">
-              Ask Frank on canvas
+              {intent === "ask"
+                ? "Ask Frank on canvas"
+                : "Create a canvas from content"}
             </label>
             <textarea
               id="frank-ai-prompt"
@@ -814,10 +858,19 @@ const AICanvasPrompt = ({
               data-form-type="other"
               data-1p-ignore="true"
               value={prompt}
-              maxLength={8000}
+              maxLength={intent === "create" ? 20000 : 8000}
               rows={2}
-              placeholder="Ask Frank anything…"
-              onChange={(event) => setPrompt(event.target.value)}
+              placeholder={
+                intent === "ask"
+                  ? "Ask Frank anything…"
+                  : "Paste or write content to turn into a canvas…"
+              }
+              onChange={(event) =>
+                setDrafts((currentDrafts) => ({
+                  ...currentDrafts,
+                  [intent]: event.target.value,
+                }))
+              }
             />
             <button
               className="frank-ai__voice"
@@ -831,8 +884,14 @@ const AICanvasPrompt = ({
             <button
               className="frank-ai__send"
               type="button"
-              aria-label={isLoading ? "Frank is answering" : "Ask Frank"}
-              title="Ask Frank"
+              aria-label={
+                isLoading
+                  ? "Frank is writing"
+                  : intent === "ask"
+                  ? "Ask Frank"
+                  : "Create on canvas"
+              }
+              title={intent === "ask" ? "Ask Frank" : "Create on canvas"}
               disabled={
                 !prompt.trim() ||
                 isLoading ||

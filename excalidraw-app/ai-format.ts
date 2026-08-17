@@ -30,6 +30,16 @@ export type CanvasBlock =
       rows: string[][];
     };
 
+export const getCanvasDocumentTitle = (
+  blocks: readonly CanvasBlock[],
+  fallback = "Frank Canvas",
+) => {
+  const heading = blocks.find(
+    (block): block is TextCanvasBlock => block.type === "h1",
+  );
+  return (heading?.text.trim() || fallback).slice(0, 72);
+};
+
 const cleanInlineMarkdown = (text: string) =>
   text
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "$1 ($2)")
@@ -600,16 +610,16 @@ export const paginateCanvasBlockHeights = ({
 
 export const createFormattedCanvasElements = ({
   markdown,
-  question,
   provider,
+  intent,
   x,
   y,
   isDark,
   width = 640,
 }: {
   markdown: string;
-  question: string;
   provider: string;
+  intent: "ask" | "create";
   x: number;
   y: number;
   isDark: boolean;
@@ -619,7 +629,6 @@ export const createFormattedCanvasElements = ({
   const color = (value: string) =>
     isDark ? removeDarkModeFilter(value) : value;
   const ink = color(isDark ? "#f5f5f5" : "#171717");
-  const muted = color(isDark ? "#a8a8a8" : "#686862");
   const blue = color("#002fa7");
   const { blocks, mermaid } = parseCanvasMarkdown(markdown);
   const skeletons: Parameters<typeof convertToExcalidrawElements>[0] = [
@@ -675,16 +684,10 @@ export const createFormattedCanvasElements = ({
   };
 
   addText({
-    text: `FRANK AI / ${provider.toUpperCase()}`,
+    text: `FRANK AI / ${provider.toUpperCase()} / ${intent.toUpperCase()}`,
     fontSize: 11 * scale,
     strokeColor: blue,
-    gap: 10 * scale,
-  });
-  addText({
-    text: `QUESTION / ${question}`,
-    fontSize: 13 * scale,
-    strokeColor: muted,
-    gap: 28 * scale,
+    gap: 24 * scale,
   });
 
   for (const block of blocks) {

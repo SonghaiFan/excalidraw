@@ -7,6 +7,8 @@ import {
   createStreamingCanvasBlockElements,
   createStreamingCanvasText,
   frameCanvasElements,
+  getCanvasDocumentTitle,
+  measureCanvasBlockHeight,
   paginateCanvasBlockHeights,
   parseCanvasMarkdown,
   readAIStream,
@@ -105,6 +107,32 @@ describe("paginateCanvasBlockHeights", () => {
       }),
     ).toEqual([[], [0]]);
   });
+
+  it("keeps every block when long generated content spans Frames", () => {
+    const document = parseCanvasMarkdown(
+      [
+        "# Long document",
+        ...Array.from(
+          { length: 30 },
+          (_, index) =>
+            `## Section ${index + 1}\n\nParagraph ${
+              index + 1
+            } with preserved source material.`,
+        ),
+      ].join("\n\n"),
+    );
+    const heights = document.blocks.map((block) =>
+      measureCanvasBlockHeight({ block, width: 900, isDark: false }),
+    );
+    const pages = paginateCanvasBlockHeights({
+      heights,
+      firstPageHeight: 1_100,
+      pageHeight: 1_200,
+    });
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.flat()).toEqual(document.blocks.map((_, index) => index));
+  });
 });
 
 describe("parseCanvasMarkdown", () => {
@@ -149,6 +177,15 @@ A --> B
         ],
       },
     ]);
+  });
+
+  it("uses the first AI heading as the document title", () => {
+    const document = parseCanvasMarkdown(
+      "Intro text\n\n# Generated title\n\n## Detail",
+    );
+
+    expect(getCanvasDocumentTitle(document.blocks)).toBe("Generated title");
+    expect(getCanvasDocumentTitle([], "Fallback title")).toBe("Fallback title");
   });
 });
 
@@ -221,21 +258,29 @@ describe("AI canvas elements", () => {
     );
 
     const document = createFormattedCanvasElements({
-      markdown: "| Feature | Result |\n| --- | --- |\n| Frame | Ready |",
-      question: "Show a table",
+      markdown:
+        "# Generated title\n\n| Feature | Result |\n| --- | --- |\n| Frame | Ready |",
       provider: "deepseek",
+      intent: "create",
       x: 0,
       y: 0,
       isDark: false,
     });
     const framed = frameCanvasElements({
       elements: document.elements,
-      name: "AI / Show a table",
+      name: `AI / ${getCanvasDocumentTitle(
+        parseCanvasMarkdown("# Generated title").blocks,
+      )}`,
       isDark: false,
     });
 
     expect(framed.frame.type).toBe("frame");
-    expect(framed.frame.name).toBe("AI / Show a table");
+    expect(framed.frame.name).toBe("AI / Generated title");
+    expect(
+      document.elements
+        .filter((element) => element.type === "text")
+        .map((element) => element.originalText),
+    ).toContain("FRANK AI / DEEPSEEK / CREATE");
     expect(
       framed.elements
         .slice(0, -1)

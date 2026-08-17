@@ -255,6 +255,45 @@
       }
     }
 
+    &__mode {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-bottom: 1px solid var(--frank-rule);
+
+      button {
+        min-height: 2.4rem;
+        border: 0;
+        border-right: 1px solid var(--frank-rule);
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: #6b6b66;
+        font: 500 0.7rem/1 Helvetica, Arial, sans-serif;
+        cursor: pointer;
+
+        &:last-child {
+          border-right: 0;
+        }
+
+        &[aria-pressed="true"] {
+          border-bottom-color: var(--frank-blue);
+          color: var(--frank-ink);
+        }
+
+        &:hover:not(:disabled) {
+          color: var(--frank-blue);
+        }
+
+        &:focus-visible {
+          outline: 1px solid var(--frank-blue);
+          outline-offset: -3px;
+        }
+
+        &:disabled {
+          cursor: default;
+        }
+      }
+    }
+
     &__context {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
@@ -496,11 +535,22 @@
 
       .frank-ai__voice,
       .frank-ai__send,
+      .frank-ai__mode,
+      .frank-ai__mode button,
       .frank-ai__context,
       .frank-ai__context-list button,
       .frank-ai__controls,
       .frank-ai__api-key-editor button {
         border-color: #343434;
+      }
+
+      .frank-ai__mode button {
+        color: #8c8c8c;
+
+        &[aria-pressed="true"] {
+          border-bottom-color: var(--frank-blue);
+          color: #f5f5f5;
+        }
       }
 
       .frank-ai__context > span,
