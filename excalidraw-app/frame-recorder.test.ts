@@ -130,7 +130,7 @@ describe("frame recorder", () => {
     expect(
       getRecordingLayoutRects("split", 100, 200, position, 0.2, "top", 0.55),
     ).toEqual({
-      canvas: { x: 0, y: 110, width: 100, height: 90 },
+      canvas: { x: 0, y: 0, width: 100, height: 200 },
       camera: { x: 0, y: 0, width: 100, height: 110 },
       cameraShape: "rectangle",
       canvasLayer: "below",
@@ -138,7 +138,7 @@ describe("frame recorder", () => {
     expect(
       getRecordingLayoutRects("split", 100, 200, position, 0.2, "bottom", 0.4),
     ).toEqual({
-      canvas: { x: 0, y: 0, width: 100, height: 120 },
+      canvas: { x: 0, y: 0, width: 100, height: 200 },
       camera: { x: 0, y: 120, width: 100, height: 80 },
       cameraShape: "rectangle",
       canvasLayer: "below",

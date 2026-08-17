@@ -232,12 +232,7 @@ export const getRecordingLayoutRects = (
     );
     const cameraIsAbove = splitPosition === "top";
     return {
-      canvas: {
-        x: 0,
-        y: cameraIsAbove ? cameraHeight : 0,
-        width,
-        height: height - cameraHeight,
-      },
+      canvas: full,
       camera: {
         x: 0,
         y: cameraIsAbove ? 0 : height - cameraHeight,
@@ -1679,7 +1674,7 @@ export const FrameRecorder = ({
                 ? "Drag the camera directly for a custom position."
                 : recorderSettings.layout === "full-camera"
                 ? "Frame content stays above the camera video."
-                : "Frame content fits inside the canvas section."}
+                : "Camera overlays the Frame without reflowing it."}
             </small>
           </div>
         ) : null}
