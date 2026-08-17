@@ -13,6 +13,7 @@ import {
   getRecorderMimeType,
   getRecordingDownloadMetadata,
   getRecordingDimensions,
+  getRecordingLayoutRects,
   sortFramesForPlayback,
 } from "./frame-recorder";
 
@@ -74,6 +75,39 @@ describe("frame recorder", () => {
       filename: "frank-canvas-2026-08-17T01-02-03-456Z.mp4",
     });
     expect(getRecordingDownloadMetadata("video/webm").extension).toBe("webm");
+  });
+
+  it("maps all four recording layouts into stable canvas regions", () => {
+    const position = { x: 0.8, y: 0.8 };
+
+    expect(
+      getRecordingLayoutRects("full-camera", 100, 200, position, 0.2),
+    ).toEqual({
+      canvas: null,
+      camera: { x: 0, y: 0, width: 100, height: 200 },
+      cameraShape: "rectangle",
+    });
+    expect(
+      getRecordingLayoutRects("camera-canvas", 100, 200, position, 0.2),
+    ).toEqual({
+      canvas: { x: 0, y: 110, width: 100, height: 90 },
+      camera: { x: 0, y: 0, width: 100, height: 110 },
+      cameraShape: "rectangle",
+    });
+    expect(
+      getRecordingLayoutRects("canvas-camera", 100, 200, position, 0.2),
+    ).toEqual({
+      canvas: { x: 0, y: 0, width: 100, height: 120 },
+      camera: { x: 0, y: 120, width: 100, height: 80 },
+      cameraShape: "rectangle",
+    });
+    expect(
+      getRecordingLayoutRects("canvas-pip", 100, 200, position, 0.2),
+    ).toEqual({
+      canvas: { x: 0, y: 0, width: 100, height: 200 },
+      camera: { x: 70, y: 150, width: 20, height: 20 },
+      cameraShape: "circle",
+    });
   });
 
   it("keeps the camera circle inside the current frame", () => {

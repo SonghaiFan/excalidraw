@@ -27,10 +27,31 @@ import type { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 type RecorderStatus = "idle" | "preview" | "recording" | "paused";
 type CameraPosition = { x: number; y: number };
 type ViewportRect = { x: number; y: number; width: number; height: number };
+export type RecorderLayout =
+  | "full-camera"
+  | "camera-canvas"
+  | "canvas-camera"
+  | "canvas-pip";
+type RecorderSettings = {
+  layout: RecorderLayout;
+  cameraSize: number;
+  cameraPosition: CameraPosition;
+};
 
 const MAX_RECORDING_SIDE = 1920;
 const DEFAULT_CAMERA_SIZE = 0.18;
 const RECORDER_SETTINGS_KEY = "frank-canvas-recorder-settings";
+const DEFAULT_RECORDER_LAYOUT: RecorderLayout = "canvas-pip";
+
+const RECORDER_LAYOUTS: readonly {
+  value: RecorderLayout;
+  label: string;
+}[] = [
+  { value: "full-camera", label: "Full camera" },
+  { value: "camera-canvas", label: "Camera / canvas" },
+  { value: "canvas-camera", label: "Canvas / camera" },
+  { value: "canvas-pip", label: "Canvas + PIP" },
+];
 
 const CAMERA_POSITIONS = {
   "top-left": { x: 0.14, y: 0.16 },
@@ -48,8 +69,9 @@ export const formatRecordingTime = (seconds: number) =>
     .toString()
     .padStart(2, "0")}`;
 
-const readRecorderSettings = () => {
-  const fallback = {
+const readRecorderSettings = (): RecorderSettings => {
+  const fallback: RecorderSettings = {
+    layout: DEFAULT_RECORDER_LAYOUT,
     cameraSize: DEFAULT_CAMERA_SIZE,
     cameraPosition: CAMERA_POSITIONS["bottom-right"],
   };
@@ -61,6 +83,9 @@ const readRecorderSettings = () => {
       window.localStorage.getItem(RECORDER_SETTINGS_KEY) || "null",
     );
     return {
+      layout: RECORDER_LAYOUTS.some(({ value }) => value === saved?.layout)
+        ? saved.layout
+        : fallback.layout,
       cameraSize:
         typeof saved?.cameraSize === "number"
           ? Math.min(0.32, Math.max(0.12, saved.cameraSize))
@@ -101,6 +126,46 @@ export const getRecordingDimensions = ({
     width: Math.max(2, Math.round((width * scale) / 2) * 2),
     height: Math.max(2, Math.round((height * scale) / 2) * 2),
   };
+};
+
+export const getRecordingLayoutRects = (
+  layout: RecorderLayout,
+  width: number,
+  height: number,
+  cameraPosition: CameraPosition,
+  cameraSize: number,
+) => {
+  const full = { x: 0, y: 0, width, height };
+  if (layout === "full-camera") {
+    return { canvas: null, camera: full, cameraShape: "rectangle" } as const;
+  }
+  if (layout === "camera-canvas") {
+    const cameraHeight = (height * 55) / 100;
+    return {
+      canvas: { x: 0, y: cameraHeight, width, height: height - cameraHeight },
+      camera: { x: 0, y: 0, width, height: cameraHeight },
+      cameraShape: "rectangle",
+    } as const;
+  }
+  if (layout === "canvas-camera") {
+    const canvasHeight = (height * 60) / 100;
+    return {
+      canvas: { x: 0, y: 0, width, height: canvasHeight },
+      camera: { x: 0, y: canvasHeight, width, height: height - canvasHeight },
+      cameraShape: "rectangle",
+    } as const;
+  }
+  const diameter = Math.min(width, height) * cameraSize;
+  return {
+    canvas: full,
+    camera: {
+      x: width * cameraPosition.x - diameter / 2,
+      y: height * cameraPosition.y - diameter / 2,
+      width: diameter,
+      height: diameter,
+    },
+    cameraShape: "circle",
+  } as const;
 };
 
 export const sortFramesForPlayback = (
@@ -202,6 +267,37 @@ const fitInside = (
   };
 };
 
+const drawVideoCover = (
+  context: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  target: ViewportRect,
+) => {
+  const sourceAspect = video.videoWidth / video.videoHeight;
+  const targetAspect = target.width / target.height;
+  let sourceX = 0;
+  let sourceY = 0;
+  let sourceWidth = video.videoWidth;
+  let sourceHeight = video.videoHeight;
+  if (sourceAspect > targetAspect) {
+    sourceWidth = sourceHeight * targetAspect;
+    sourceX = (video.videoWidth - sourceWidth) / 2;
+  } else {
+    sourceHeight = sourceWidth / targetAspect;
+    sourceY = (video.videoHeight - sourceHeight) / 2;
+  }
+  context.drawImage(
+    video,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    target.x,
+    target.y,
+    target.width,
+    target.height,
+  );
+};
+
 export const FrameRecorder = ({
   excalidrawAPI,
   sceneLifecycle,
@@ -244,6 +340,7 @@ export const FrameRecorder = ({
     recorderSettings.cameraPosition,
   );
   const cameraSizeRef = useRef(recorderSettings.cameraSize);
+  const layoutRef = useRef<RecorderLayout>(recorderSettings.layout);
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordedSecondsRef = useRef(0);
   const currentFrameIdRef = useRef<string | null>(null);
@@ -268,6 +365,22 @@ export const FrameRecorder = ({
       .getSceneElements()
       .find((element) => element.id === id);
     return element && isFrameElement(element) ? element : null;
+  };
+
+  const resizeCaptureCanvas = (frame: NonDeleted<ExcalidrawFrameElement>) => {
+    const captureCanvas = captureCanvasRef.current;
+    if (!captureCanvas) {
+      return null;
+    }
+    const dimensions = getRecordingDimensions(frame);
+    if (
+      captureCanvas.width !== dimensions.width ||
+      captureCanvas.height !== dimensions.height
+    ) {
+      captureCanvas.width = dimensions.width;
+      captureCanvas.height = dimensions.height;
+    }
+    return captureCanvas;
   };
 
   const refreshFrames = () => {
@@ -303,6 +416,7 @@ export const FrameRecorder = ({
     frameCanvasRef.current = null;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
+    resizeCaptureCanvas(frame);
     void refreshFrameCanvas();
     excalidrawAPI.setViewport({
       target: [frame],
@@ -333,15 +447,27 @@ export const FrameRecorder = ({
     }
   };
 
+  const setRecorderLayout = (layout: RecorderLayout) => {
+    layoutRef.current = layout;
+    setRecorderSettings((settings) => ({ ...settings, layout }));
+  };
+
   const updateCameraOverlay = (
     frame: NonDeleted<ExcalidrawFrameElement>,
     appState: AppState,
   ) => {
+    const rect = getFrameViewportRect(frame, appState);
+    const preview = captureCanvasRef.current;
+    if (preview) {
+      preview.style.left = `${rect.x}px`;
+      preview.style.top = `${rect.y}px`;
+      preview.style.width = `${rect.width}px`;
+      preview.style.height = `${rect.height}px`;
+    }
     const camera = cameraRef.current;
-    if (!camera) {
+    if (!camera || layoutRef.current !== "canvas-pip") {
       return;
     }
-    const rect = getFrameViewportRect(frame, appState);
     const shortestSide = Math.min(rect.width, rect.height);
     const size = Math.min(
       shortestSide,
@@ -436,54 +562,63 @@ export const FrameRecorder = ({
       appState.theme === "dark" ? "#000000" : appState.viewBackgroundColor;
     context.fillRect(0, 0, captureCanvas.width, captureCanvas.height);
 
-    const destination = fitInside(
-      sourceCanvas.width,
-      sourceCanvas.height,
+    const layout = getRecordingLayoutRects(
+      layoutRef.current,
       captureCanvas.width,
       captureCanvas.height,
+      cameraPositionRef.current,
+      cameraSizeRef.current,
     );
-    context.drawImage(
-      sourceCanvas,
-      0,
-      0,
-      sourceCanvas.width,
-      sourceCanvas.height,
-      destination.x,
-      destination.y,
-      destination.width,
-      destination.height,
-    );
+    if (layout.canvas) {
+      const canvasDestination = fitInside(
+        sourceCanvas.width,
+        sourceCanvas.height,
+        layout.canvas.width,
+        layout.canvas.height,
+      );
+      context.drawImage(
+        sourceCanvas,
+        0,
+        0,
+        sourceCanvas.width,
+        sourceCanvas.height,
+        layout.canvas.x + canvasDestination.x,
+        layout.canvas.y + canvasDestination.y,
+        canvasDestination.width,
+        canvasDestination.height,
+      );
+    }
 
     const video = videoRef.current;
     if (video?.videoWidth) {
-      const diameter =
-        Math.min(destination.width, destination.height) * cameraSizeRef.current;
-      const centerX =
-        destination.x + destination.width * cameraPositionRef.current.x;
-      const centerY =
-        destination.y + destination.height * cameraPositionRef.current.y;
       context.save();
-      context.beginPath();
-      context.arc(centerX, centerY, diameter / 2, 0, Math.PI * 2);
-      context.clip();
-      const cameraCrop = Math.min(video.videoWidth, video.videoHeight);
-      context.drawImage(
-        video,
-        (video.videoWidth - cameraCrop) / 2,
-        (video.videoHeight - cameraCrop) / 2,
-        cameraCrop,
-        cameraCrop,
-        centerX - diameter / 2,
-        centerY - diameter / 2,
-        diameter,
-        diameter,
-      );
+      if (layout.cameraShape === "circle") {
+        context.beginPath();
+        context.arc(
+          layout.camera.x + layout.camera.width / 2,
+          layout.camera.y + layout.camera.height / 2,
+          layout.camera.width / 2,
+          0,
+          Math.PI * 2,
+        );
+        context.clip();
+      }
+      drawVideoCover(context, video, layout.camera);
       context.restore();
-      context.strokeStyle = "#ffffff";
-      context.lineWidth = Math.max(2, diameter * 0.018);
-      context.beginPath();
-      context.arc(centerX, centerY, diameter / 2, 0, Math.PI * 2);
-      context.stroke();
+      if (layout.cameraShape === "circle") {
+        context.strokeStyle =
+          statusRef.current === "recording" ? "#d9342b" : "#ffffff";
+        context.lineWidth = Math.max(2, layout.camera.width * 0.018);
+        context.beginPath();
+        context.arc(
+          layout.camera.x + layout.camera.width / 2,
+          layout.camera.y + layout.camera.height / 2,
+          layout.camera.width / 2,
+          0,
+          Math.PI * 2,
+        );
+        context.stroke();
+      }
     }
   };
 
@@ -526,6 +661,10 @@ export const FrameRecorder = ({
     if (!(await refreshFrameCanvas())) {
       return null;
     }
+    if (!resizeCaptureCanvas(frame)) {
+      return null;
+    }
+    drawRecordingFrame();
 
     const requestId = ++previewRequestIdRef.current;
     const request = navigator.mediaDevices
@@ -596,12 +735,10 @@ export const FrameRecorder = ({
         return;
       }
 
-      const dimensions = getRecordingDimensions(recordingFrame);
-      const captureCanvas =
-        captureCanvasRef.current || document.createElement("canvas");
-      captureCanvas.width = dimensions.width;
-      captureCanvas.height = dimensions.height;
-      captureCanvasRef.current = captureCanvas;
+      const captureCanvas = resizeCaptureCanvas(recordingFrame);
+      if (!captureCanvas) {
+        return;
+      }
       drawRecordingFrame();
 
       if (typeof captureCanvas.captureStream !== "function") {
@@ -752,6 +889,7 @@ export const FrameRecorder = ({
     frameCanvasRef.current = null;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
+    resizeCaptureCanvas(targetFrame);
     excalidrawAPI.setViewport({
       target: [targetFrame],
       fit: "scale-down",
@@ -763,7 +901,10 @@ export const FrameRecorder = ({
   };
 
   const dragCamera = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+    if (
+      layoutRef.current !== "canvas-pip" ||
+      !event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
       return;
     }
     const frame = getCurrentFrame();
@@ -909,48 +1050,85 @@ export const FrameRecorder = ({
                 {CloseIcon}
               </button>
             </div>
-            <label className="frank-recorder__size">
-              <span>Camera size</span>
-              <input
-                type="range"
-                min="12"
-                max="32"
-                step="1"
-                value={Math.round(recorderSettings.cameraSize * 100)}
-                onChange={(event) =>
-                  setCameraSize(Number(event.target.value) / 100)
-                }
-              />
-              <output>{Math.round(recorderSettings.cameraSize * 100)}%</output>
-            </label>
-            <div className="frank-recorder__position">
-              <span>Camera position</span>
-              <div>
-                {(Object.keys(CAMERA_POSITIONS) as CameraPositionName[]).map(
-                  (name) => {
-                    const position = CAMERA_POSITIONS[name];
-                    const isSelected =
-                      Math.abs(recorderSettings.cameraPosition.x - position.x) <
-                        0.001 &&
-                      Math.abs(recorderSettings.cameraPosition.y - position.y) <
-                        0.001;
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        data-position={name}
-                        aria-label={name.replace("-", " ")}
-                        aria-pressed={isSelected}
-                        onClick={() => setCameraPosition(position)}
-                      >
-                        <span aria-hidden="true" />
-                      </button>
-                    );
-                  },
-                )}
-              </div>
+            <div
+              className="frank-recorder__layouts"
+              role="group"
+              aria-label="Choose a recording layout"
+            >
+              {RECORDER_LAYOUTS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  data-layout={value}
+                  aria-label={label}
+                  aria-pressed={recorderSettings.layout === value}
+                  onClick={() => setRecorderLayout(value)}
+                >
+                  <span
+                    className="frank-recorder__layout-icon"
+                    aria-hidden="true"
+                  >
+                    <i />
+                    <i />
+                  </span>
+                  <span>{label}</span>
+                </button>
+              ))}
             </div>
-            <small>Drag the camera directly for a custom position.</small>
+            {recorderSettings.layout === "canvas-pip" ? (
+              <>
+                <label className="frank-recorder__size">
+                  <span>Camera size</span>
+                  <input
+                    type="range"
+                    min="12"
+                    max="32"
+                    step="1"
+                    value={Math.round(recorderSettings.cameraSize * 100)}
+                    onChange={(event) =>
+                      setCameraSize(Number(event.target.value) / 100)
+                    }
+                  />
+                  <output>
+                    {Math.round(recorderSettings.cameraSize * 100)}%
+                  </output>
+                </label>
+                <div className="frank-recorder__position">
+                  <span>Camera position</span>
+                  <div>
+                    {(
+                      Object.keys(CAMERA_POSITIONS) as CameraPositionName[]
+                    ).map((name) => {
+                      const position = CAMERA_POSITIONS[name];
+                      const isSelected =
+                        Math.abs(
+                          recorderSettings.cameraPosition.x - position.x,
+                        ) < 0.001 &&
+                        Math.abs(
+                          recorderSettings.cameraPosition.y - position.y,
+                        ) < 0.001;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          data-position={name}
+                          aria-label={name.replace("-", " ")}
+                          aria-pressed={isSelected}
+                          onClick={() => setCameraPosition(position)}
+                        >
+                          <span aria-hidden="true" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : null}
+            <small>
+              {recorderSettings.layout === "canvas-pip"
+                ? "Drag the camera directly for a custom position."
+                : "Frame content fits automatically inside the canvas area."}
+            </small>
           </div>
         ) : null}
         {isOpen ? (
@@ -1053,24 +1231,41 @@ export const FrameRecorder = ({
       </div>
       {typeof document !== "undefined"
         ? createPortal(
-            <div
-              ref={cameraRef}
-              className={`frank-recorder__camera ${
-                isOpen && frames.length ? "frank-recorder__camera--visible" : ""
-              } ${
-                status === "recording"
-                  ? "frank-recorder__camera--recording"
-                  : ""
-              } ${status === "paused" ? "frank-recorder__camera--paused" : ""}`}
-              onPointerDown={(event) => {
-                event.currentTarget.setPointerCapture(event.pointerId);
-              }}
-              onPointerMove={dragCamera}
-              onPointerUp={saveDraggedCameraPosition}
-              onPointerCancel={saveDraggedCameraPosition}
-            >
-              <video ref={videoRef} autoPlay muted playsInline />
-            </div>,
+            <>
+              <canvas
+                ref={captureCanvasRef}
+                className={`frank-recorder__preview ${
+                  isOpen && frames.length
+                    ? "frank-recorder__preview--visible"
+                    : ""
+                }`}
+                aria-hidden="true"
+              />
+              <div
+                ref={cameraRef}
+                className={`frank-recorder__camera ${
+                  isOpen &&
+                  frames.length &&
+                  recorderSettings.layout === "canvas-pip"
+                    ? "frank-recorder__camera--visible"
+                    : ""
+                } ${
+                  status === "recording"
+                    ? "frank-recorder__camera--recording"
+                    : ""
+                } ${
+                  status === "paused" ? "frank-recorder__camera--paused" : ""
+                }`}
+                onPointerDown={(event) => {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={dragCamera}
+                onPointerUp={saveDraggedCameraPosition}
+                onPointerCancel={saveDraggedCameraPosition}
+              >
+                <video ref={videoRef} autoPlay muted playsInline />
+              </div>
+            </>,
             document.body,
           )
         : null}
