@@ -8,12 +8,15 @@ import type {
 import {
   clampCameraPosition,
   formatRecordingTime,
+  getAudioSyncDelay,
+  getCameraFrameDelay,
   getClipInsets,
   getFrameSceneSignature,
   getRecorderMimeType,
   getRecordingDownloadMetadata,
   getRecordingDimensions,
   getRecordingLayoutRects,
+  smoothCameraFrameDelay,
 } from "./frame-recorder";
 import {
   getNextFramePosition,
@@ -25,6 +28,36 @@ describe("frame recorder", () => {
   it("formats a stable recording timer", () => {
     expect(formatRecordingTime(0)).toBe("00:00");
     expect(formatRecordingTime(65.9)).toBe("01:05");
+  });
+
+  it("measures and smooths camera latency for microphone sync", () => {
+    expect(
+      getCameraFrameDelay(1110, {
+        captureTime: 1000,
+        expectedDisplayTime: 1120,
+      }),
+    ).toBeCloseTo(0.12);
+    expect(
+      getCameraFrameDelay(1110, {
+        expectedDisplayTime: 1120,
+      }),
+    ).toBeNull();
+    expect(
+      getCameraFrameDelay(1000, {
+        captureTime: 1200,
+        expectedDisplayTime: 1010,
+      }),
+    ).toBe(0);
+    expect(
+      getCameraFrameDelay(2000, {
+        captureTime: 1000,
+        expectedDisplayTime: 2010,
+      }),
+    ).toBe(0.35);
+    expect(smoothCameraFrameDelay(null, 0.1)).toBe(0.1);
+    expect(smoothCameraFrameDelay(0.1, 0.2)).toBeCloseTo(0.116);
+    expect(getAudioSyncDelay(0.12, 0.03)).toBeCloseTo(0.09);
+    expect(getAudioSyncDelay(0.02, 0.03)).toBe(0);
   });
 
   it("caps recording size and orders slide frames by row then column", () => {

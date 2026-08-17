@@ -1356,6 +1356,16 @@
       display: block;
     }
 
+    // Frame previews already contain the composited camera image. Keep this
+    // overlay as a transparent drag target so the video is not shown twice.
+    &--interaction-only {
+      background: transparent;
+
+      video {
+        opacity: 0;
+      }
+    }
+
     &:active {
       cursor: grabbing;
     }

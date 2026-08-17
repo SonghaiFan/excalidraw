@@ -41,8 +41,17 @@ type RecorderSettings = {
   splitPosition: SplitPosition;
   splitRatio: number;
 };
+type RecordingAudioPipeline = {
+  context: AudioContext;
+  source: MediaStreamAudioSourceNode;
+  delay: DelayNode;
+  destination: MediaStreamAudioDestinationNode;
+  inputLatency: number;
+};
 
 const MAX_RECORDING_SIDE = 1920;
+const MAX_AUDIO_SYNC_DELAY_SECONDS = 0.35;
+const AUDIO_SYNC_SMOOTHING = 0.16;
 const DEFAULT_CAMERA_SIZE = 0.18;
 const RECORDER_SETTINGS_KEY = "frank-canvas-recorder-settings";
 const DEFAULT_RECORDER_LAYOUT: RecorderLayout = "split";
@@ -73,6 +82,43 @@ export const formatRecordingTime = (seconds: number) =>
     .padStart(2, "0")}:${Math.floor(seconds % 60)
     .toString()
     .padStart(2, "0")}`;
+
+export const getCameraFrameDelay = (
+  now: DOMHighResTimeStamp,
+  metadata: Pick<
+    VideoFrameCallbackMetadata,
+    "captureTime" | "expectedDisplayTime"
+  >,
+) => {
+  if (
+    typeof metadata.captureTime !== "number" ||
+    !Number.isFinite(metadata.captureTime)
+  ) {
+    return null;
+  }
+  const displayTime = Math.max(now, metadata.expectedDisplayTime);
+  return Math.min(
+    MAX_AUDIO_SYNC_DELAY_SECONDS,
+    Math.max(0, (displayTime - metadata.captureTime) / 1000),
+  );
+};
+
+export const smoothCameraFrameDelay = (
+  previousDelay: number | null,
+  nextDelay: number,
+) =>
+  previousDelay === null
+    ? nextDelay
+    : previousDelay + (nextDelay - previousDelay) * AUDIO_SYNC_SMOOTHING;
+
+export const getAudioSyncDelay = (
+  cameraFrameDelay: number | null,
+  microphoneLatency = 0,
+) =>
+  Math.min(
+    MAX_AUDIO_SYNC_DELAY_SECONDS,
+    Math.max(0, (cameraFrameDelay || 0) - Math.max(0, microphoneLatency)),
+  );
 
 const readRecorderSettings = (): RecorderSettings => {
   const fallback: RecorderSettings = {
@@ -368,8 +414,14 @@ export const FrameRecorder = ({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasCaptureTrackRef = useRef<CanvasCaptureMediaStreamTrack | null>(
+    null,
+  );
   const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const videoFrameCallbackRef = useRef<number | null>(null);
+  const recordingAudioPipelineRef = useRef<RecordingAudioPipeline | null>(null);
+  const cameraFrameDelayRef = useRef<number | null>(null);
   const frameExportTimerRef = useRef<number | null>(null);
   const frameExportIdRef = useRef(0);
   const frameSceneSignatureRef = useRef("");
@@ -398,6 +450,7 @@ export const FrameRecorder = ({
   const recordingStartPendingRef = useRef(false);
   const stopPreviewRef = useRef<() => void>(() => {});
   const scheduleFrameCanvasRefreshRef = useRef<() => void>(() => {});
+  const drawRecordingFrameRef = useRef<() => void>(() => {});
   const onCloseRef = useRef(onClose);
   isOpenRef.current = isOpen;
   statusRef.current = status;
@@ -448,6 +501,117 @@ export const FrameRecorder = ({
     return captureCanvas;
   };
 
+  const setFramePreviewVisible = (isVisible: boolean) => {
+    const preview = captureCanvasRef.current;
+    if (preview) {
+      preview.style.visibility = isVisible ? "visible" : "hidden";
+    }
+  };
+
+  const stopRecordingAudioPipeline = () => {
+    const pipeline = recordingAudioPipelineRef.current;
+    if (!pipeline) {
+      return;
+    }
+    recordingAudioPipelineRef.current = null;
+    pipeline.source.disconnect();
+    pipeline.delay.disconnect();
+    pipeline.destination.stream.getTracks().forEach((track) => track.stop());
+    void pipeline.context.close();
+  };
+
+  const createSynchronizedAudioTrack = async (
+    mediaStream: MediaStream,
+    context: AudioContext,
+    contextReady: Promise<void>,
+  ) => {
+    stopRecordingAudioPipeline();
+    const audioTrack = mediaStream.getAudioTracks()[0];
+    if (!audioTrack) {
+      void context.close();
+      return null;
+    }
+
+    try {
+      await contextReady;
+      const source = context.createMediaStreamSource(
+        new MediaStream([audioTrack]),
+      );
+      const delay = context.createDelay(MAX_AUDIO_SYNC_DELAY_SECONDS);
+      const { latency: inputLatency = 0 } =
+        audioTrack.getSettings() as MediaTrackSettings & { latency?: number };
+      delay.delayTime.value = getAudioSyncDelay(
+        cameraFrameDelayRef.current,
+        inputLatency,
+      );
+      const destination = context.createMediaStreamDestination();
+      source.connect(delay);
+      delay.connect(destination);
+      recordingAudioPipelineRef.current = {
+        context,
+        source,
+        delay,
+        destination,
+        inputLatency,
+      };
+      return destination.stream.getAudioTracks()[0] || null;
+    } catch (error) {
+      void context.close();
+      throw error;
+    }
+  };
+
+  const updateRecordingAudioDelay = (
+    now: DOMHighResTimeStamp,
+    metadata: VideoFrameCallbackMetadata,
+  ) => {
+    const nextDelay = getCameraFrameDelay(now, metadata);
+    if (nextDelay === null) {
+      return;
+    }
+    const smoothedDelay = smoothCameraFrameDelay(
+      cameraFrameDelayRef.current,
+      nextDelay,
+    );
+    cameraFrameDelayRef.current = smoothedDelay;
+    const pipeline = recordingAudioPipelineRef.current;
+    if (pipeline && pipeline.context.state !== "closed") {
+      pipeline.delay.delayTime.setTargetAtTime(
+        getAudioSyncDelay(smoothedDelay, pipeline.inputLatency),
+        pipeline.context.currentTime,
+        0.04,
+      );
+    }
+  };
+
+  const waitForCameraSyncSample = async () => {
+    if (cameraFrameDelayRef.current !== null) {
+      return;
+    }
+    const video = videoRef.current;
+    if (!video || typeof video.requestVideoFrameCallback !== "function") {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      let isSettled = false;
+      const finish = () => {
+        if (!isSettled) {
+          isSettled = true;
+          window.clearTimeout(timeout);
+          resolve();
+        }
+      };
+      const callbackId = video.requestVideoFrameCallback((now, metadata) => {
+        updateRecordingAudioDelay(now, metadata);
+        finish();
+      });
+      const timeout = window.setTimeout(() => {
+        video.cancelVideoFrameCallback(callbackId);
+        finish();
+      }, 180);
+    });
+  };
+
   const refreshFrames = () => {
     const nextFrames = sortFramesForPlayback(
       excalidrawAPI.getSceneElements().filter(isFrameElement),
@@ -485,8 +649,12 @@ export const FrameRecorder = ({
     }
     scopeRef.current = scope;
     layoutRef.current = layout;
-    frameCanvasRef.current = null;
+    frameExportIdRef.current += 1;
     frameSceneSignatureRef.current = "";
+    frameAppearanceRef.current = "";
+    if (scope === "frame") {
+      setFramePreviewVisible(false);
+    }
     setRecorderSettings((settings) => ({ ...settings, scope, layout }));
     const source = getRecordingSourceDimensions();
     if (source) {
@@ -569,6 +737,7 @@ export const FrameRecorder = ({
       frameCanvasRef.current = viewportCanvas;
       frameSceneSignatureRef.current = "canvas-viewport";
       frameAppearanceRef.current = `${appState.theme}:${appState.viewBackgroundColor}`;
+      drawRecordingFrameRef.current();
       return true;
     }
 
@@ -601,6 +770,8 @@ export const FrameRecorder = ({
         frame.id,
       );
       frameAppearanceRef.current = `${appState.theme}:${appState.viewBackgroundColor}`;
+      drawRecordingFrameRef.current();
+      setFramePreviewVisible(true);
       return true;
     } catch {
       if (exportId === frameExportIdRef.current) {
@@ -625,7 +796,6 @@ export const FrameRecorder = ({
 
   const drawRecordingFrame = () => {
     const appState = excalidrawAPI.getAppState();
-    updateRecordingOverlay(appState);
     const captureCanvas = captureCanvasRef.current;
     const sourceCanvas = frameCanvasRef.current;
     if (!captureCanvas || !sourceCanvas) {
@@ -698,23 +868,51 @@ export const FrameRecorder = ({
       drawCanvas();
       drawCamera();
     }
+    canvasCaptureTrackRef.current?.requestFrame();
   };
+  drawRecordingFrameRef.current = drawRecordingFrame;
 
   const startRenderLoop = () => {
-    if (animationFrameRef.current !== null) {
-      return;
+    const video = videoRef.current;
+    const supportsVideoFrameCallbacks =
+      typeof video?.requestVideoFrameCallback === "function";
+
+    if (animationFrameRef.current === null) {
+      const renderOverlay = () => {
+        updateRecordingOverlay(excalidrawAPI.getAppState());
+        if (!supportsVideoFrameCallbacks) {
+          drawRecordingFrame();
+        }
+        animationFrameRef.current = window.requestAnimationFrame(renderOverlay);
+      };
+      animationFrameRef.current = window.requestAnimationFrame(renderOverlay);
     }
-    const render = () => {
-      drawRecordingFrame();
-      animationFrameRef.current = window.requestAnimationFrame(render);
-    };
-    animationFrameRef.current = window.requestAnimationFrame(render);
+
+    if (
+      video &&
+      supportsVideoFrameCallbacks &&
+      videoFrameCallbackRef.current === null
+    ) {
+      const renderVideoFrame: VideoFrameRequestCallback = (now, metadata) => {
+        updateRecordingAudioDelay(now, metadata);
+        drawRecordingFrame();
+        videoFrameCallbackRef.current =
+          video.requestVideoFrameCallback(renderVideoFrame);
+      };
+      videoFrameCallbackRef.current =
+        video.requestVideoFrameCallback(renderVideoFrame);
+    }
   };
 
   const stopRenderLoop = () => {
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
+    }
+    const video = videoRef.current;
+    if (video && videoFrameCallbackRef.current !== null) {
+      video.cancelVideoFrameCallback(videoFrameCallbackRef.current);
+      videoFrameCallbackRef.current = null;
     }
   };
 
@@ -764,6 +962,7 @@ export const FrameRecorder = ({
           return null;
         }
         mediaStreamRef.current = stream;
+        cameraFrameDelayRef.current = null;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -802,6 +1001,20 @@ export const FrameRecorder = ({
       excalidrawAPI.setToast({ message: "Recording is unavailable here." });
       return;
     }
+    let recordingAudioContext: AudioContext;
+    let recordingAudioContextReady: Promise<void>;
+    try {
+      recordingAudioContext = new AudioContext();
+      recordingAudioContextReady =
+        recordingAudioContext.state === "suspended"
+          ? recordingAudioContext.resume()
+          : Promise.resolve();
+    } catch {
+      excalidrawAPI.setToast({
+        message: "Microphone synchronization is unavailable here.",
+      });
+      return;
+    }
     recordingStartPendingRef.current = true;
     try {
       const mediaStream = await startPreview();
@@ -812,9 +1025,19 @@ export const FrameRecorder = ({
       if (!(await refreshFrameCanvas())) {
         return;
       }
+      await waitForCameraSyncSample();
+      const synchronizedSource = getRecordingSourceDimensions();
+      if (
+        !isOpenRef.current ||
+        mediaStreamRef.current !== mediaStream ||
+        !synchronizedSource
+      ) {
+        return;
+      }
 
-      recordingDimensionsRef.current = getRecordingDimensions(recordingSource);
-      const captureCanvas = resizeCaptureCanvas(recordingSource);
+      recordingDimensionsRef.current =
+        getRecordingDimensions(synchronizedSource);
+      const captureCanvas = resizeCaptureCanvas(synchronizedSource);
       if (!captureCanvas) {
         recordingDimensionsRef.current = null;
         return;
@@ -828,10 +1051,37 @@ export const FrameRecorder = ({
         });
         return;
       }
-      const canvasStream = captureCanvas.captureStream(30);
+      const supportsManualFrameCapture =
+        typeof CanvasCaptureMediaStreamTrack !== "undefined" &&
+        typeof CanvasCaptureMediaStreamTrack.prototype.requestFrame ===
+          "function";
+      const canvasStream = captureCanvas.captureStream(
+        supportsManualFrameCapture ? 0 : 30,
+      );
+      const canvasCaptureTrack =
+        canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
+      canvasCaptureTrackRef.current = supportsManualFrameCapture
+        ? canvasCaptureTrack
+        : null;
+      canvasCaptureTrackRef.current?.requestFrame();
+      let synchronizedAudioTrack: MediaStreamTrack | null;
+      try {
+        synchronizedAudioTrack = await createSynchronizedAudioTrack(
+          mediaStream,
+          recordingAudioContext,
+          recordingAudioContextReady,
+        );
+      } catch {
+        canvasStream.getTracks().forEach((track) => track.stop());
+        canvasCaptureTrackRef.current = null;
+        excalidrawAPI.setToast({
+          message: "Microphone synchronization could not be started.",
+        });
+        return;
+      }
       const recordingStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
-        ...mediaStream.getAudioTracks(),
+        ...(synchronizedAudioTrack ? [synchronizedAudioTrack] : []),
       ]);
       recordingStreamRef.current = recordingStream;
       chunksRef.current = [];
@@ -841,10 +1091,20 @@ export const FrameRecorder = ({
           message: "Native MP4 is unavailable in this browser. Using WebM.",
         });
       }
-      const recorder = new MediaRecorder(
-        recordingStream,
-        mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined,
-      );
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(
+          recordingStream,
+          mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined,
+        );
+      } catch {
+        recordingStream.getTracks().forEach((track) => track.stop());
+        canvasCaptureTrackRef.current = null;
+        recordingStreamRef.current = null;
+        stopRecordingAudioPipeline();
+        excalidrawAPI.setToast({ message: "Recording could not be prepared." });
+        return;
+      }
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size) {
@@ -881,6 +1141,8 @@ export const FrameRecorder = ({
           });
         }
         recordingStream.getTracks().forEach((track) => track.stop());
+        canvasCaptureTrackRef.current = null;
+        stopRecordingAudioPipeline();
         recordingStreamRef.current = null;
         recorderRef.current = null;
         recordingDimensionsRef.current = null;
@@ -896,10 +1158,25 @@ export const FrameRecorder = ({
       recordedSecondsRef.current = 0;
       recordingStartedAtRef.current = Date.now();
       setElapsedSeconds(0);
-      recorder.start(1000);
+      try {
+        recorder.start(1000);
+      } catch {
+        recorderRef.current = null;
+        recordingStream.getTracks().forEach((track) => track.stop());
+        canvasCaptureTrackRef.current = null;
+        recordingStreamRef.current = null;
+        stopRecordingAudioPipeline();
+        recordingStartedAtRef.current = null;
+        excalidrawAPI.setToast({ message: "Recording could not be started." });
+        return;
+      }
       setStatus("recording");
     } finally {
       if (!recorderRef.current) {
+        stopRecordingAudioPipeline();
+        if (recordingAudioContext.state !== "closed") {
+          void recordingAudioContext.close();
+        }
         recordingDimensionsRef.current = null;
       }
       recordingStartPendingRef.current = false;
@@ -950,11 +1227,14 @@ export const FrameRecorder = ({
     }
     stopRenderLoop();
     if (!isFinalizingRecording) {
+      canvasCaptureTrackRef.current = null;
+      stopRecordingAudioPipeline();
       recordingDimensionsRef.current = null;
       recordingStartedAtRef.current = null;
       recordedSecondsRef.current = 0;
       setElapsedSeconds(0);
     }
+    setFramePreviewVisible(false);
     setStatus("idle");
   };
   stopPreviewRef.current = stopPreview;
@@ -979,9 +1259,10 @@ export const FrameRecorder = ({
     const targetFrame =
       nextFrames.find((frame) => frame.id === currentFrameIdRef.current) ||
       nextFrames[0];
-    frameCanvasRef.current = null;
+    frameExportIdRef.current += 1;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
+    setFramePreviewVisible(false);
     const source = getRecordingSourceDimensions();
     if (source) {
       resizeCaptureCanvas(source);
@@ -1071,9 +1352,10 @@ export const FrameRecorder = ({
         currentFrameIdRef.current = selectedFrame.id;
         currentFrameId = selectedFrame.id;
         if (scopeRef.current === "frame") {
-          frameCanvasRef.current = null;
+          frameExportIdRef.current += 1;
           frameSceneSignatureRef.current = "";
           frameAppearanceRef.current = "";
+          setFramePreviewVisible(false);
           resizeCaptureCanvas(selectedFrame);
           scheduleFrameCanvasRefreshRef.current();
         }
@@ -1138,11 +1420,17 @@ export const FrameRecorder = ({
   }, [recorderSettings]);
 
   useEffect(() => {
+    const video = videoRef.current;
     return () => {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      canvasCaptureTrackRef.current = null;
+      stopRecordingAudioPipeline();
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (video && videoFrameCallbackRef.current !== null) {
+        video.cancelVideoFrameCallback(videoFrameCallbackRef.current);
       }
       if (frameExportTimerRef.current !== null) {
         window.clearTimeout(frameExportTimerRef.current);
@@ -1404,6 +1692,11 @@ export const FrameRecorder = ({
                   hasRecordingTarget &&
                   recorderSettings.layout === "canvas-pip"
                     ? "frank-recorder__camera--visible"
+                    : ""
+                } ${
+                  recorderSettings.scope === "frame" &&
+                  recorderSettings.layout === "canvas-pip"
+                    ? "frank-recorder__camera--interaction-only"
                     : ""
                 }`}
                 onPointerDown={(event) => {
