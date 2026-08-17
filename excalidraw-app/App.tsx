@@ -1282,6 +1282,7 @@ const ExcalidrawWrapper = () => {
     "--frank-accent": accent.color,
     "--frank-accent-dark": accent.dark,
     "--frank-accent-soft": accent.soft,
+    "--frank-accent-ink": accent.ink,
   } as CSSProperties;
 
   useEffect(() => {
@@ -1294,6 +1295,7 @@ const ExcalidrawWrapper = () => {
     root.style.setProperty("--frank-accent", accent.color);
     root.style.setProperty("--frank-accent-dark", accent.dark);
     root.style.setProperty("--frank-accent-soft", accent.soft);
+    root.style.setProperty("--frank-accent-ink", accent.ink);
     document
       .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
       ?.setAttribute("content", accent.color);

@@ -100,6 +100,8 @@
   --frank-blue: var(--frank-accent, #002fa7);
   --frank-blue-dark: var(--frank-accent-dark, #00247f);
   --frank-blue-soft: var(--frank-accent-soft, #e7edff);
+  --frank-accent-ink: #ffffff;
+  --frank-orange: #ff8000;
   --frank-paper: #fbfbf8;
   --frank-ink: #171717;
   --frank-rule: #d8d8d2;
@@ -840,7 +842,7 @@
         padding: 0 0.55rem;
         border: 1px solid var(--frank-blue);
         background: var(--frank-blue);
-        color: #ffffff;
+        color: var(--frank-accent-ink);
         font: 600 0.62rem/1 Helvetica, Arial, sans-serif;
         cursor: pointer;
 
@@ -978,7 +980,7 @@
       }
 
       &--recording {
-        color: #c82820;
+        color: var(--frank-orange);
 
         i {
           border: 0;
@@ -1417,7 +1419,7 @@
     --color-selection: var(--frank-blue);
     --color-brand-hover: var(--frank-blue);
     --color-brand-active: var(--frank-blue-dark);
-    --color-on-primary-container: var(--frank-blue);
+    --color-on-primary-container: var(--frank-accent-ink);
     --color-surface-primary-container: var(--frank-blue-soft);
     --color-logo-icon: var(--frank-blue);
     --color-logo-text: var(--frank-blue-dark);
@@ -1437,7 +1439,7 @@
       --keybinding-color: #777770;
       --button-hover-bg: var(--frank-blue-soft);
       --button-active-border: var(--frank-blue);
-      --color-on-primary-container: var(--frank-white);
+      --color-on-primary-container: var(--frank-accent-ink);
       --color-surface-primary-container: var(--frank-blue);
 
       background: var(--frank-white);
@@ -1456,26 +1458,26 @@
 
       .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon,
       .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon svg {
-        color: var(--frank-white);
+        color: var(--frank-accent-ink);
       }
     }
 
     .dropdown-menu-button {
       --button-bg: var(--frank-blue);
-      --button-color: var(--frank-white);
+      --button-color: var(--frank-accent-ink);
       --button-border: var(--frank-blue);
       --button-hover-bg: var(--frank-blue-dark);
-      --button-hover-color: var(--frank-white);
+      --button-hover-color: var(--frank-accent-ink);
       --background: var(--frank-blue);
-      --icon-fill-color: var(--frank-white);
+      --icon-fill-color: var(--frank-accent-ink);
 
       background-color: var(--frank-blue);
       border-color: var(--frank-blue);
-      color: var(--frank-white);
+      color: var(--frank-accent-ink);
       box-shadow: none;
 
       svg {
-        color: var(--frank-white);
+        color: var(--frank-accent-ink);
       }
 
       &:hover {
@@ -1684,7 +1686,7 @@
       --color-selection: var(--frank-blue);
       --color-brand-hover: #ededed;
       --color-brand-active: #ffffff;
-      --color-on-primary-container: var(--frank-white);
+      --color-on-primary-container: var(--frank-accent-ink);
       --color-surface-primary-container: var(--frank-blue);
       --color-logo-icon: var(--frank-white);
       --color-logo-text: var(--frank-white);
@@ -1710,7 +1712,7 @@
         --keybinding-color: #858585;
         --button-hover-bg: #202020;
         --button-active-border: var(--frank-blue);
-        --color-on-primary-container: var(--frank-white);
+        --color-on-primary-container: var(--frank-accent-ink);
         --color-surface-primary-container: var(--frank-blue);
 
         background: #0a0a0a;
@@ -1729,7 +1731,7 @@
 
         .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon,
         .ToolIcon_type_toggle.ToolIcon--checked .ToolIcon__icon svg {
-          color: var(--frank-white);
+          color: var(--frank-accent-ink);
         }
       }
 
@@ -1884,6 +1886,7 @@
   --frank-blue: var(--frank-accent, #002fa7);
   --frank-blue-dark: var(--frank-accent-dark, #00247f);
   --frank-blue-soft: var(--frank-accent-soft, #e7edff);
+  --frank-orange: #ff8000;
   --frank-paper: #fbfbf8;
   --frank-ink: #171717;
   --frank-rule: #d8d8d2;
@@ -1931,7 +1934,7 @@
     &--primary {
       border-color: var(--frank-blue);
       background: var(--frank-blue);
-      color: var(--frank-white);
+      color: var(--frank-accent-ink);
 
       &:hover {
         border-color: var(--frank-blue-dark);
@@ -1972,7 +1975,7 @@
     &--primary {
       border-color: var(--frank-blue);
       background: var(--frank-blue);
-      color: #ffffff;
+      color: var(--frank-accent-ink);
 
       &:hover {
         border-color: var(--frank-blue-dark);

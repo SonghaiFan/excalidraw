@@ -21,6 +21,11 @@ describe("Frank accent colors", () => {
   });
 
   it("resolves every curated accent", () => {
+    expect(FRANK_ACCENT_COLORS).toHaveLength(2);
+    expect(resolveFrankAccent("orange")).toMatchObject({
+      color: "#ff8000",
+      ink: "#171717",
+    });
     FRANK_ACCENT_COLORS.forEach((accent) => {
       expect(resolveFrankAccent(accent.id)).toBe(accent);
     });
@@ -67,15 +72,15 @@ describe("Frank accent colors", () => {
     const result = rethemeFrankElements({
       elements,
       previousAccent: DEFAULT_FRANK_ACCENT,
-      nextAccent: resolveFrankAccent("forest"),
+      nextAccent: resolveFrankAccent("orange"),
       isDark: false,
     });
 
     expect(result.didChange).toBe(true);
-    expect(result.elements[0].strokeColor).toBe("#146b4a");
+    expect(result.elements[0].strokeColor).toBe("#ff8000");
     expect(result.elements[1]).toMatchObject({
-      strokeColor: "#146b4a",
-      backgroundColor: "#146b4a",
+      strokeColor: "#ff8000",
+      backgroundColor: "#ff8000",
     });
     expect(result.elements[2].strokeColor).toBe("#e03131");
     expect(result.elements[3].strokeColor).toBe("#002fa7");

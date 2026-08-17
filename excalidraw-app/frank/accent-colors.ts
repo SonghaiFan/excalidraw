@@ -9,6 +9,7 @@ export type FrankAccentColor = {
   color: string;
   dark: string;
   soft: string;
+  ink: string;
 };
 
 export const FRANK_ACCENT_STORAGE_KEY = "frank-canvas-accent-color";
@@ -26,34 +27,15 @@ export const FRANK_ACCENT_COLORS: readonly FrankAccentColor[] = [
     color: "#002fa7",
     dark: "#00247f",
     soft: "#e7edff",
+    ink: "#ffffff",
   },
   {
-    id: "cobalt",
-    name: "Cobalt",
-    color: "#2457c5",
-    dark: "#173d96",
-    soft: "#e8eeff",
-  },
-  {
-    id: "forest",
-    name: "Forest",
-    color: "#146b4a",
-    dark: "#0f5138",
-    soft: "#e8f4ef",
-  },
-  {
-    id: "vermilion",
-    name: "Vermilion",
-    color: "#c2412d",
-    dark: "#963323",
-    soft: "#fbecea",
-  },
-  {
-    id: "violet",
-    name: "Violet",
-    color: "#6941c6",
-    dark: "#4f3196",
-    soft: "#f0ebfb",
+    id: "orange",
+    name: "Red orange",
+    color: "#ff8000",
+    dark: "#cc6500",
+    soft: "#fff0df",
+    ink: "#171717",
   },
 ] as const;
 
