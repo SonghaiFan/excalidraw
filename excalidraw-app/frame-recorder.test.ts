@@ -11,6 +11,7 @@ import {
   getFrameSceneSignature,
   getFramePlaybackIndex,
   getRecorderMimeType,
+  getRecordingDownloadMetadata,
   getRecordingDimensions,
   sortFramesForPlayback,
 } from "./frame-recorder";
@@ -60,6 +61,19 @@ describe("frame recorder", () => {
     expect(getRecorderMimeType((type) => type === "video/webm")).toBe(
       "video/webm",
     );
+  });
+
+  it("creates a timestamped filename for the automatic download", () => {
+    expect(
+      getRecordingDownloadMetadata(
+        "video/mp4;codecs=avc1",
+        new Date("2026-08-17T01:02:03.456Z"),
+      ),
+    ).toEqual({
+      extension: "mp4",
+      filename: "frank-canvas-2026-08-17T01-02-03-456Z.mp4",
+    });
+    expect(getRecordingDownloadMetadata("video/webm").extension).toBe("webm");
   });
 
   it("keeps the camera circle inside the current frame", () => {

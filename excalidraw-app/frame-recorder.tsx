@@ -149,6 +149,19 @@ export const getRecorderMimeType = (
   return types.find(isTypeSupported) || "";
 };
 
+export const getRecordingDownloadMetadata = (
+  mimeType: string,
+  now = new Date(),
+) => {
+  const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+  return {
+    extension,
+    filename: `frank-canvas-${now
+      .toISOString()
+      .replace(/[:.]/g, "-")}.${extension}`,
+  } as const;
+};
+
 const getFrameViewportRect = (
   frame: NonDeleted<ExcalidrawFrameElement>,
   appState: AppState,
@@ -213,10 +226,6 @@ export const FrameRecorder = ({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [recorderSettings, setRecorderSettings] =
     useState(readRecorderSettings);
-  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
-  const [recordingExtension, setRecordingExtension] = useState<"mp4" | "webm">(
-    "mp4",
-  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraRef = useRef<HTMLDivElement>(null);
@@ -409,6 +418,9 @@ export const FrameRecorder = ({
 
   const drawRecordingFrame = () => {
     const frame = getCurrentFrame();
+    if (frame) {
+      updateCameraOverlay(frame, excalidrawAPI.getAppState());
+    }
     const captureCanvas = captureCanvasRef.current;
     const sourceCanvas = frameCanvasRef.current;
     if (!frame || !captureCanvas || !sourceCanvas) {
@@ -416,8 +428,6 @@ export const FrameRecorder = ({
     }
 
     const appState = excalidrawAPI.getAppState();
-    updateCameraOverlay(frame, appState);
-
     const context = captureCanvas.getContext("2d");
     if (!context || sourceCanvas.width <= 0 || sourceCanvas.height <= 0) {
       return;
@@ -586,10 +596,6 @@ export const FrameRecorder = ({
         return;
       }
 
-      if (recordingUrl) {
-        URL.revokeObjectURL(recordingUrl);
-        setRecordingUrl(null);
-      }
       const dimensions = getRecordingDimensions(recordingFrame);
       const captureCanvas =
         captureCanvasRef.current || document.createElement("canvas");
@@ -640,13 +646,28 @@ export const FrameRecorder = ({
         const blob = new Blob(chunksRef.current, {
           type: recorder.mimeType || "video/webm",
         });
-        setRecordingExtension(
-          recorder.mimeType.includes("mp4") ? "mp4" : "webm",
-        );
-        setRecordingUrl(URL.createObjectURL(blob));
+        try {
+          const { filename } = getRecordingDownloadMetadata(recorder.mimeType);
+          const recordingUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = recordingUrl;
+          link.download = filename;
+          link.hidden = true;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(recordingUrl), 1000);
+        } catch {
+          excalidrawAPI.setToast({
+            message: "The recording finished, but the download was blocked.",
+          });
+        }
         recordingStream.getTracks().forEach((track) => track.stop());
         recordingStreamRef.current = null;
         recorderRef.current = null;
+        chunksRef.current = [];
+        recordedSecondsRef.current = 0;
+        setElapsedSeconds(0);
         setStatus(mediaStreamRef.current ? "preview" : "idle");
       };
       recordedSecondsRef.current = 0;
@@ -702,7 +723,7 @@ export const FrameRecorder = ({
       videoRef.current.srcObject = null;
     }
     stopRenderLoop();
-    if (!isFinalizingRecording && !recordingUrl) {
+    if (!isFinalizingRecording) {
       recordingStartedAtRef.current = null;
       recordedSecondsRef.current = 0;
       setElapsedSeconds(0);
@@ -719,39 +740,26 @@ export const FrameRecorder = ({
 
   const openRecorder = () => {
     const nextFrames = refreshFrames();
-    if (!nextFrames.length && !recordingUrl) {
+    if (!nextFrames.length) {
       excalidrawAPI.setToast({ message: "Create a frame before recording." });
       return;
     }
+    isOpenRef.current = true;
     onOpen();
-    if (!nextFrames.length) {
-      return;
-    }
     const targetFrame =
       nextFrames.find((frame) => frame.id === currentFrameIdRef.current) ||
       nextFrames[0];
     frameCanvasRef.current = null;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
-    void refreshFrameCanvas();
     excalidrawAPI.setViewport({
       target: [targetFrame],
       fit: "scale-down",
       animation: true,
       offsets: { ui: true },
     });
-  };
-
-  const downloadRecording = () => {
-    if (!recordingUrl) {
-      return;
-    }
-    const link = document.createElement("a");
-    link.href = recordingUrl;
-    link.download = `frank-canvas-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.${recordingExtension}`;
-    link.click();
+    startRenderLoop();
+    void startPreview();
   };
 
   const dragCamera = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -883,15 +891,6 @@ export const FrameRecorder = ({
     };
   }, []);
 
-  useEffect(
-    () => () => {
-      if (recordingUrl) {
-        URL.revokeObjectURL(recordingUrl);
-      }
-    },
-    [recordingUrl],
-  );
-
   return (
     <>
       <div className={`frank-recorder frank-recorder--${theme}`}>
@@ -970,15 +969,9 @@ export const FrameRecorder = ({
                 : status === "paused"
                 ? "PAUSED"
                 : status === "preview"
-                ? recordingUrl
-                  ? "DONE"
-                  : "PREVIEW"
-                : recordingUrl
-                ? "DONE"
+                ? "PREVIEW"
                 : "READY"}
-              {(status === "recording" ||
-                status === "paused" ||
-                recordingUrl) && (
+              {(status === "recording" || status === "paused") && (
                 <time>{formatRecordingTime(elapsedSeconds)}</time>
               )}
             </span>
@@ -1024,16 +1017,6 @@ export const FrameRecorder = ({
                 </button>
               </>
             ) : null}
-            {recordingUrl ? (
-              <button
-                type="button"
-                aria-label={`Download ${recordingExtension.toUpperCase()}`}
-                title={`Download ${recordingExtension.toUpperCase()}`}
-                onClick={downloadRecording}
-              >
-                Download {recordingExtension.toUpperCase()}
-              </button>
-            ) : null}
             {frames.length ? (
               <button
                 type="button"
@@ -1073,7 +1056,7 @@ export const FrameRecorder = ({
             <div
               ref={cameraRef}
               className={`frank-recorder__camera ${
-                status === "idle" ? "" : "frank-recorder__camera--visible"
+                isOpen && frames.length ? "frank-recorder__camera--visible" : ""
               } ${
                 status === "recording"
                   ? "frank-recorder__camera--recording"
