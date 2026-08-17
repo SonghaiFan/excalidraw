@@ -16,8 +16,8 @@ describe("Frank accent colors", () => {
   it("defaults to one adaptive black and white accent", () => {
     expect(DEFAULT_FRANK_ACCENT).toMatchObject({
       id: "black-white",
-      light: { color: "#000000", ink: "#ffffff" },
-      dark: { color: "#ffffff", ink: "#000000" },
+      palette: { color: "#000000", ink: "#ffffff" },
+      darkPalette: { color: "#ffffff", ink: "#000000" },
     });
     expect(getFrankAccentPalette(DEFAULT_FRANK_ACCENT, false).color).toBe(
       "#000000",
@@ -32,7 +32,7 @@ describe("Frank accent colors", () => {
   it("resolves every curated accent", () => {
     expect(FRANK_ACCENT_COLORS).toHaveLength(3);
     expect(resolveFrankAccent("orange")).toMatchObject({
-      light: { color: "#ff8000", ink: "#171717" },
+      palette: { color: "#ff8000", ink: "#171717" },
     });
     FRANK_ACCENT_COLORS.forEach((accent) => {
       expect(resolveFrankAccent(accent.id)).toBe(accent);
@@ -48,7 +48,7 @@ describe("Frank accent colors", () => {
         frameId: null,
         strokeColor: "#002fa7",
         backgroundColor: "transparent",
-        customData: getFrankThemeColorData({ strokeColor: true }),
+        customData: getFrankThemeColorData({ strokeColor: "#002fa7" }),
       },
       {
         id: "ai-accent",
@@ -57,8 +57,8 @@ describe("Frank accent colors", () => {
         strokeColor: "#002fa7",
         backgroundColor: "#002fa7",
         customData: getFrankThemeColorData({
-          strokeColor: true,
-          backgroundColor: true,
+          strokeColor: "#002fa7",
+          backgroundColor: "#002fa7",
         }),
       },
       {
@@ -67,7 +67,7 @@ describe("Frank accent colors", () => {
         frameId: "ai-frame",
         strokeColor: "#e03131",
         backgroundColor: "transparent",
-        customData: getFrankThemeColorData({ strokeColor: true }),
+        customData: getFrankThemeColorData({ strokeColor: "#002fa7" }),
       },
       {
         id: "user-blue",
@@ -79,9 +79,7 @@ describe("Frank accent colors", () => {
     ] as unknown as ExcalidrawElement[];
     const result = rethemeFrankElements({
       elements,
-      previousAccent: resolveFrankAccent("klein"),
       nextAccent: resolveFrankAccent("orange"),
-      wasDark: false,
       isDark: false,
     });
 
@@ -90,6 +88,12 @@ describe("Frank accent colors", () => {
     expect(result.elements[1]).toMatchObject({
       strokeColor: "#ff8000",
       backgroundColor: "#ff8000",
+      customData: {
+        frankThemeColor: {
+          strokeColor: "#ff8000",
+          backgroundColor: "#ff8000",
+        },
+      },
     });
     expect(result.elements[2].strokeColor).toBe("#e03131");
     expect(result.elements[3].strokeColor).toBe("#002fa7");
@@ -103,7 +107,7 @@ describe("Frank accent colors", () => {
         frameId: null,
         strokeColor: "#000000",
         backgroundColor: "transparent",
-        customData: getFrankThemeColorData({ strokeColor: true }),
+        customData: getFrankThemeColorData({ strokeColor: "#000000" }),
       },
       {
         id: "user-black",
@@ -115,9 +119,7 @@ describe("Frank accent colors", () => {
     ] as unknown as ExcalidrawElement[];
     const result = rethemeFrankElements({
       elements,
-      previousAccent: DEFAULT_FRANK_ACCENT,
       nextAccent: DEFAULT_FRANK_ACCENT,
-      wasDark: false,
       isDark: true,
     });
 
@@ -125,5 +127,63 @@ describe("Frank accent colors", () => {
       getFrankAccentElementColor(DEFAULT_FRANK_ACCENT, true),
     );
     expect(result.elements[1].strokeColor).toBe("#000000");
+  });
+
+  it("uses the recorded system color instead of guessing the prior accent", () => {
+    const elements = [
+      {
+        id: "ai-accent",
+        type: "rectangle",
+        frameId: null,
+        strokeColor: "#002fa7",
+        backgroundColor: "#002fa7",
+        customData: getFrankThemeColorData({
+          strokeColor: "#002fa7",
+          backgroundColor: "#002fa7",
+        }),
+      },
+      {
+        id: "user-edited-ai-accent",
+        type: "rectangle",
+        frameId: null,
+        strokeColor: "#e03131",
+        backgroundColor: "transparent",
+        customData: getFrankThemeColorData({ strokeColor: "#002fa7" }),
+      },
+      {
+        id: "user-blue",
+        type: "rectangle",
+        frameId: null,
+        strokeColor: "#002fa7",
+        backgroundColor: "transparent",
+      },
+    ] as unknown as ExcalidrawElement[];
+    const result = rethemeFrankElements({
+      elements,
+      nextAccent: DEFAULT_FRANK_ACCENT,
+      isDark: false,
+    });
+
+    expect(result.elements[0]).toMatchObject({
+      strokeColor: "#000000",
+      backgroundColor: "#000000",
+      customData: {
+        frankThemeColor: {
+          strokeColor: "#000000",
+          backgroundColor: "#000000",
+        },
+      },
+    });
+    expect(result.elements[1].strokeColor).toBe("#e03131");
+    expect(result.elements[2].strokeColor).toBe("#002fa7");
+  });
+
+  it("keeps colored accents visually stable across editor themes", () => {
+    for (const accentId of ["klein", "orange"]) {
+      const accent = resolveFrankAccent(accentId);
+      expect(getFrankAccentPalette(accent, true).color).toBe(
+        getFrankAccentPalette(accent, false).color,
+      );
+    }
   });
 });

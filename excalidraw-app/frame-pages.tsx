@@ -188,13 +188,14 @@ export const FramePages = ({
             y: center.y - size.height / 2,
           };
         })();
+    const frameStrokeColor =
+      currentFrame?.strokeColor ||
+      (theme === "dark" ? removeDarkModeFilter(accentColor) : accentColor);
     const frame = newFrameElement({
       ...position,
       ...size,
       name: `Frame ${frames.length + 1}`,
-      strokeColor:
-        currentFrame?.strokeColor ||
-        (theme === "dark" ? removeDarkModeFilter(accentColor) : accentColor),
+      strokeColor: frameStrokeColor,
       backgroundColor: "transparent",
       fillStyle: currentFrame?.fillStyle,
       strokeWidth: currentFrame?.strokeWidth,
@@ -203,7 +204,9 @@ export const FramePages = ({
       opacity: currentFrame?.opacity,
       customData: currentFrame?.customData
         ? { ...currentFrame.customData }
-        : getFrankThemeColorData({ strokeColor: true }),
+        : currentFrame
+        ? undefined
+        : getFrankThemeColorData({ strokeColor: frameStrokeColor }),
     });
     excalidrawAPI.updateScene({
       elements: [

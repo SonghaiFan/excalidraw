@@ -493,8 +493,8 @@ const createCanvasBlockSkeletons = ({
           customData:
             rowIndex === 0
               ? getFrankThemeColorData({
-                  strokeColor: true,
-                  backgroundColor: true,
+                  strokeColor: blue,
+                  backgroundColor: blue,
                 })
               : undefined,
           roughness: 0,
@@ -566,8 +566,8 @@ const createCanvasBlockSkeletons = ({
       fillStyle: "solid",
       strokeColor: blue,
       customData: getFrankThemeColorData({
-        strokeColor: true,
-        backgroundColor: true,
+        strokeColor: blue,
+        backgroundColor: blue,
       }),
       roughness: 0,
     });
@@ -663,8 +663,8 @@ export const createFormattedCanvasElements = ({
       fillStyle: "solid",
       strokeColor: blue,
       customData: getFrankThemeColorData({
-        strokeColor: true,
-        backgroundColor: true,
+        strokeColor: blue,
+        backgroundColor: blue,
       }),
       roughness: 0,
     },
@@ -715,7 +715,7 @@ export const createFormattedCanvasElements = ({
     text: `FRANK AI / ${provider.toUpperCase()} / ${intent.toUpperCase()}`,
     fontSize: 11 * scale,
     strokeColor: blue,
-    customData: getFrankThemeColorData({ strokeColor: true }),
+    customData: getFrankThemeColorData({ strokeColor: blue }),
     gap: 24 * scale,
   });
 
@@ -894,14 +894,14 @@ export const frameCanvasElements = ({
       strokeColor: blue,
       backgroundColor: "transparent",
       roughness: 0,
-      customData: getFrankThemeColorData({ strokeColor: true }),
+      customData: getFrankThemeColorData({ strokeColor: blue }),
     });
   const nextFrame = newElementWith(baseFrame, {
     ...frameBounds,
     name,
     strokeColor: blue,
     customData: getFrankThemeColorData(
-      { strokeColor: true },
+      { strokeColor: blue },
       baseFrame.customData,
     ),
   });

@@ -277,7 +277,7 @@ describe("AI canvas elements", () => {
     expect(framed.frame.type).toBe("frame");
     expect(framed.frame.name).toBe("AI / Generated title");
     expect(framed.frame.customData?.frankThemeColor).toEqual({
-      strokeColor: true,
+      strokeColor: "#000000",
     });
     expect(
       document.elements.some(

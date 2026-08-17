@@ -13,8 +13,8 @@ export type FrankAccentPalette = {
 export type FrankAccentColor = {
   id: string;
   name: string;
-  light: FrankAccentPalette;
-  dark: FrankAccentPalette;
+  palette: FrankAccentPalette;
+  darkPalette?: FrankAccentPalette;
   swatch: string;
 };
 
@@ -22,21 +22,21 @@ export const FRANK_ACCENT_STORAGE_KEY = "frank-canvas-accent-color-v2";
 export const FRANK_THEME_COLOR_DATA_KEY = "frankThemeColor";
 
 export type FrankThemeColorBinding = {
-  strokeColor?: true;
-  backgroundColor?: true;
+  strokeColor?: string;
+  backgroundColor?: string;
 };
 
 export const FRANK_ACCENT_COLORS: readonly FrankAccentColor[] = [
   {
     id: "black-white",
     name: "Black / white",
-    light: {
+    palette: {
       color: "#000000",
       hover: "#242424",
       soft: "#ededed",
       ink: "#ffffff",
     },
-    dark: {
+    darkPalette: {
       color: "#ffffff",
       hover: "#d8d8d8",
       soft: "#1b1b1b",
@@ -47,34 +47,22 @@ export const FRANK_ACCENT_COLORS: readonly FrankAccentColor[] = [
   {
     id: "klein",
     name: "Klein blue",
-    light: {
+    palette: {
       color: "#002fa7",
       hover: "#00247f",
       soft: "#e7edff",
       ink: "#ffffff",
-    },
-    dark: {
-      color: "#5f7fff",
-      hover: "#89a0ff",
-      soft: "#151b2e",
-      ink: "#000000",
     },
     swatch: "#002fa7",
   },
   {
     id: "orange",
     name: "Red orange",
-    light: {
+    palette: {
       color: "#ff8000",
       hover: "#cc6500",
       soft: "#fff0df",
       ink: "#171717",
-    },
-    dark: {
-      color: "#ff8f1f",
-      hover: "#ffab59",
-      soft: "#2a1b0d",
-      ink: "#000000",
     },
     swatch: "#ff8000",
   },
@@ -89,7 +77,7 @@ export const resolveFrankAccent = (id: string | null | undefined) =>
 export const getFrankAccentPalette = (
   accent: FrankAccentColor,
   isDark: boolean,
-) => (isDark ? accent.dark : accent.light);
+) => (isDark && accent.darkPalette ? accent.darkPalette : accent.palette);
 
 export const getFrankAccentElementColor = (
   accent: FrankAccentColor,
@@ -109,18 +97,13 @@ export const getFrankThemeColorData = (
 
 export const rethemeFrankElements = ({
   elements,
-  previousAccent,
   nextAccent,
-  wasDark,
   isDark,
 }: {
   elements: readonly ExcalidrawElement[];
-  previousAccent: FrankAccentColor;
   nextAccent: FrankAccentColor;
-  wasDark: boolean;
   isDark: boolean;
 }) => {
-  const previousColor = getFrankAccentElementColor(previousAccent, wasDark);
   const nextColor = getFrankAccentElementColor(nextAccent, isDark);
   let didChange = false;
   const nextElements = elements.map((element) => {
@@ -136,13 +119,13 @@ export const rethemeFrankElements = ({
     } = {};
     const nextBinding: FrankThemeColorBinding = { ...binding };
 
-    if (binding?.strokeColor && element.strokeColor === previousColor) {
+    if (binding?.strokeColor === element.strokeColor) {
       updates.strokeColor = nextColor;
-      nextBinding.strokeColor = true;
+      nextBinding.strokeColor = nextColor;
     }
-    if (binding?.backgroundColor && element.backgroundColor === previousColor) {
+    if (binding?.backgroundColor === element.backgroundColor) {
       updates.backgroundColor = nextColor;
-      nextBinding.backgroundColor = true;
+      nextBinding.backgroundColor = nextColor;
     }
     if (!updates.strokeColor && !updates.backgroundColor) {
       return element;

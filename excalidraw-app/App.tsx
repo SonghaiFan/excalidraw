@@ -1318,9 +1318,7 @@ const ExcalidrawWrapper = () => {
     }
     const rethemed = rethemeFrankElements({
       elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
-      previousAccent: previousAccent.accent,
       nextAccent: accent,
-      wasDark: previousAccent.isDark,
       isDark: isDarkTheme,
     });
     previousAccentRef.current = { accent, isDark: isDarkTheme };
