@@ -276,6 +276,16 @@ describe("AI canvas elements", () => {
 
     expect(framed.frame.type).toBe("frame");
     expect(framed.frame.name).toBe("AI / Generated title");
+    expect(framed.frame.customData?.frankThemeColor).toEqual({
+      strokeColor: true,
+    });
+    expect(
+      document.elements.some(
+        (element) =>
+          element.strokeColor === "#002fa7" &&
+          element.customData?.frankThemeColor,
+      ),
+    ).toBe(true);
     expect(
       document.elements
         .filter((element) => element.type === "text")

@@ -24,6 +24,7 @@ import {
   sortFramesForPlayback,
 } from "./frank/frame-utils";
 import { MAX_AI_CONTEXT_FRAMES } from "./frank/frame-context";
+import { getFrankThemeColorData } from "./frank/accent-colors";
 
 import type { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 
@@ -41,10 +42,12 @@ export const FramePages = ({
   excalidrawAPI,
   sceneLifecycle,
   theme,
+  accentColor,
 }: {
   excalidrawAPI: ExcalidrawImperativeAPI;
   sceneLifecycle: FrankSceneLifecycle;
   theme: AppState["theme"];
+  accentColor: string;
 }) => {
   const [frames, setFrames] = useState<NonDeleted<ExcalidrawFrameElement>[]>(
     () => getFrames(excalidrawAPI),
@@ -188,13 +191,16 @@ export const FramePages = ({
       ...position,
       ...size,
       name: `Frame ${frames.length + 1}`,
-      strokeColor: currentFrame?.strokeColor || "#002fa7",
+      strokeColor: currentFrame?.strokeColor || accentColor,
       backgroundColor: "transparent",
       fillStyle: currentFrame?.fillStyle,
       strokeWidth: currentFrame?.strokeWidth,
       strokeStyle: currentFrame?.strokeStyle,
       roughness: 0,
       opacity: currentFrame?.opacity,
+      customData: currentFrame?.customData
+        ? { ...currentFrame.customData }
+        : getFrankThemeColorData({ strokeColor: true }),
     });
     excalidrawAPI.updateScene({
       elements: [

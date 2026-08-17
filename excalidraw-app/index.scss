@@ -97,9 +97,9 @@
 
 .excalidraw-app {
   position: relative;
-  --frank-blue: #002fa7;
-  --frank-blue-dark: #00247f;
-  --frank-blue-soft: #e7edff;
+  --frank-blue: var(--frank-accent, #002fa7);
+  --frank-blue-dark: var(--frank-accent-dark, #00247f);
+  --frank-blue-soft: var(--frank-accent-soft, #e7edff);
   --frank-paper: #fbfbf8;
   --frank-ink: #171717;
   --frank-rule: #d8d8d2;
@@ -1410,10 +1410,10 @@
   .excalidraw {
     --color-primary: var(--frank-blue);
     --color-primary-darker: var(--frank-blue-dark);
-    --color-primary-darkest: #001d68;
-    --color-primary-hover: #00288f;
+    --color-primary-darkest: var(--frank-blue-dark);
+    --color-primary-hover: var(--frank-blue-dark);
     --color-primary-light: var(--frank-blue-soft);
-    --color-primary-light-darker: #cbd9ff;
+    --color-primary-light-darker: var(--frank-blue-soft);
     --color-selection: var(--frank-blue);
     --color-brand-hover: var(--frank-blue);
     --color-brand-active: var(--frank-blue-dark);
@@ -1421,7 +1421,7 @@
     --color-surface-primary-container: var(--frank-blue-soft);
     --color-logo-icon: var(--frank-blue);
     --color-logo-text: var(--frank-blue-dark);
-    --focus-highlight-color: #8eabff;
+    --focus-highlight-color: var(--frank-blue);
     --link-color: var(--frank-blue);
     --link-color-hover: var(--frank-blue-dark);
     --border-radius-md: 0.2rem;
@@ -1490,6 +1490,42 @@
       box-shadow: 0 8px 24px rgba(18, 18, 18, 0.1);
     }
 
+    .frank-accent-picker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      width: 100%;
+      padding: 0.25rem 0.5rem;
+      color: var(--frank-ink);
+      font: 400 0.75rem/1 var(--ui-font);
+
+      &__options {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      button {
+        width: 1.25rem;
+        height: 1.25rem;
+        padding: 0;
+        border: 1px solid rgba(23, 23, 23, 0.18);
+        border-radius: 0.2rem;
+        cursor: pointer;
+
+        &[aria-pressed="true"] {
+          outline: 2px solid var(--frank-ink);
+          outline-offset: 2px;
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--frank-blue);
+          outline-offset: 2px;
+        }
+      }
+    }
+
     .sidebar-trigger__label-element:has(.default-sidebar-trigger) {
       display: none;
     }
@@ -1542,7 +1578,7 @@
       }
 
       &::after {
-        content: "CLEAR TOOLS / QUIET INTERFACE / 002FA7";
+        content: "CLEAR TOOLS / QUIET INTERFACE / FRANK";
         position: absolute;
         left: 0;
         bottom: -2.25rem;
@@ -1640,9 +1676,9 @@
       --shadow-island: none;
       --shadow-island-stronger: none;
       --color-primary: var(--frank-blue);
-      --color-primary-darker: #0037c2;
-      --color-primary-darkest: #1749c6;
-      --color-primary-hover: #0b3bb4;
+      --color-primary-darker: var(--frank-blue-dark);
+      --color-primary-darkest: var(--frank-blue-dark);
+      --color-primary-hover: var(--frank-blue-dark);
       --color-primary-light: #171717;
       --color-primary-light-darker: #222222;
       --color-selection: var(--frank-blue);
@@ -1727,6 +1763,18 @@
         border-color: #343434;
         border-top-color: var(--frank-blue);
         box-shadow: none;
+      }
+
+      .frank-accent-picker {
+        color: #f5f5f5;
+
+        button {
+          border-color: rgba(255, 255, 255, 0.28);
+
+          &[aria-pressed="true"] {
+            outline-color: #f5f5f5;
+          }
+        }
       }
 
       .dropdown-menu-item--selected,
@@ -1833,8 +1881,9 @@
 
 .excalidraw-app .excalidraw,
 .excalidraw.excalidraw-modal-container {
-  --frank-blue: #002fa7;
-  --frank-blue-dark: #00247f;
+  --frank-blue: var(--frank-accent, #002fa7);
+  --frank-blue-dark: var(--frank-accent-dark, #00247f);
+  --frank-blue-soft: var(--frank-accent-soft, #e7edff);
   --frank-paper: #fbfbf8;
   --frank-ink: #171717;
   --frank-rule: #d8d8d2;
@@ -1900,7 +1949,7 @@
 
   .Modal__content {
     border-color: #343434;
-    border-top-color: #002fa7;
+    border-top-color: var(--frank-blue);
     background: #0a0a0a;
     box-shadow: none;
   }
@@ -1921,13 +1970,13 @@
 
     &--danger,
     &--primary {
-      border-color: #002fa7;
-      background: #002fa7;
+      border-color: var(--frank-blue);
+      background: var(--frank-blue);
       color: #ffffff;
 
       &:hover {
-        border-color: #1749c6;
-        background: #1749c6;
+        border-color: var(--frank-blue-dark);
+        background: var(--frank-blue-dark);
       }
     }
   }

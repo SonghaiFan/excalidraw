@@ -33,7 +33,13 @@ import {
   resolvablePromise,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { t } from "@excalidraw/excalidraw/i18n";
 
@@ -86,6 +92,12 @@ import {
   type AIFrameContext,
 } from "./frank/frame-context";
 import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
+import {
+  DEFAULT_FRANK_ACCENT,
+  FRANK_ACCENT_STORAGE_KEY,
+  rethemeFrankElements,
+  resolveFrankAccent,
+} from "./frank/accent-colors";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -213,6 +225,7 @@ const AICanvasPrompt = ({
   excalidrawAPI,
   sceneLifecycle,
   theme,
+  accentColor,
   isOpen,
   onOpen,
   onClose,
@@ -220,6 +233,7 @@ const AICanvasPrompt = ({
   excalidrawAPI: ExcalidrawImperativeAPI;
   sceneLifecycle: FrankSceneLifecycle;
   theme: AppState["theme"];
+  accentColor: string;
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
@@ -382,6 +396,7 @@ const AICanvasPrompt = ({
       y: position.y + pagePadding,
       isDark,
       width: contentWidth,
+      accentColor,
     });
     let headerElements: NonDeletedExcalidrawElement[] = [...header.elements];
     let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
@@ -503,6 +518,7 @@ const AICanvasPrompt = ({
                     width: contentWidth,
                     isDark,
                     previous: cached?.elements,
+                    accentColor,
                   }),
                 };
           cursorY += section.height;
@@ -518,6 +534,7 @@ const AICanvasPrompt = ({
             pages.length
           }`,
           isDark,
+          accentColor,
           frame: frames[pageIndex],
           bounds: {
             x: pageX,
@@ -620,6 +637,7 @@ const AICanvasPrompt = ({
             elements: placedDiagram,
             name: `AI / ${responseTitle} / DIAGRAM`,
             isDark,
+            accentColor,
             frame: frames[pageIndex],
             bounds: {
               x: pageX,
@@ -1034,9 +1052,11 @@ type CanvasTool = "ai" | "recording" | null;
 const CanvasToolDock = ({
   excalidrawAPI,
   theme,
+  accentColor,
 }: {
   excalidrawAPI: ExcalidrawImperativeAPI;
   theme: AppState["theme"];
+  accentColor: string;
 }) => {
   const [activeTool, setActiveTool] = useState<CanvasTool>(null);
   const [sceneLifecycle] = useState(
@@ -1054,6 +1074,7 @@ const CanvasToolDock = ({
         excalidrawAPI={excalidrawAPI}
         sceneLifecycle={sceneLifecycle}
         theme={theme}
+        accentColor={accentColor}
       />
       <div
         className={`frank-dock frank-dock--${theme}`}
@@ -1063,6 +1084,7 @@ const CanvasToolDock = ({
           excalidrawAPI={excalidrawAPI}
           sceneLifecycle={sceneLifecycle}
           theme={theme}
+          accentColor={accentColor}
           isOpen={activeTool === "ai"}
           onOpen={() => setActiveTool("ai")}
           onClose={() => setActiveTool(null)}
@@ -1244,6 +1266,58 @@ const ExcalidrawWrapper = () => {
   const isCollabDisabled = true;
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
+
+  const [accentId, setAccentId] = useState(() => {
+    try {
+      return resolveFrankAccent(
+        window.localStorage.getItem(FRANK_ACCENT_STORAGE_KEY),
+      ).id;
+    } catch {
+      return resolveFrankAccent(null).id;
+    }
+  });
+  const accent = resolveFrankAccent(accentId);
+  const previousAccentRef = useRef(DEFAULT_FRANK_ACCENT);
+  const accentStyle = {
+    "--frank-accent": accent.color,
+    "--frank-accent-dark": accent.dark,
+    "--frank-accent-soft": accent.soft,
+  } as CSSProperties;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FRANK_ACCENT_STORAGE_KEY, accent.id);
+    } catch {
+      // The accent still applies for the current session.
+    }
+    const root = document.documentElement;
+    root.style.setProperty("--frank-accent", accent.color);
+    root.style.setProperty("--frank-accent-dark", accent.dark);
+    root.style.setProperty("--frank-accent-soft", accent.soft);
+    document
+      .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      ?.setAttribute("content", accent.color);
+  }, [accent]);
+
+  useEffect(() => {
+    const previousAccent = previousAccentRef.current;
+    if (!excalidrawAPI || previousAccent.id === accent.id) {
+      return;
+    }
+    const rethemed = rethemeFrankElements({
+      elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+      previousAccent,
+      nextAccent: accent,
+      isDark: excalidrawAPI.getAppState().theme === "dark",
+    });
+    previousAccentRef.current = accent;
+    if (rethemed.didChange) {
+      excalidrawAPI.updateScene({
+        elements: rethemed.elements as OrderedExcalidrawElement[],
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    }
+  }, [accent, excalidrawAPI]);
 
   const [langCode, setLangCode] = useAppLangCode();
 
@@ -1642,7 +1716,7 @@ const ExcalidrawWrapper = () => {
   }
 
   return (
-    <div style={{ height: "100%" }} className="excalidraw-app">
+    <div style={{ height: "100%", ...accentStyle }} className="excalidraw-app">
       <Excalidraw
         onChange={onChange}
         onExport={onExport}
@@ -1671,7 +1745,11 @@ const ExcalidrawWrapper = () => {
           }
         }}
       >
-        <AppMainMenu theme={appTheme} />
+        <AppMainMenu
+          theme={appTheme}
+          accentId={accent.id}
+          onAccentChange={setAccentId}
+        />
         <AppWelcomeScreen />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
@@ -1703,7 +1781,11 @@ const ExcalidrawWrapper = () => {
         />
       </Excalidraw>
       {excalidrawAPI ? (
-        <CanvasToolDock excalidrawAPI={excalidrawAPI} theme={editorTheme} />
+        <CanvasToolDock
+          excalidrawAPI={excalidrawAPI}
+          theme={editorTheme}
+          accentColor={accent.color}
+        />
       ) : null}
     </div>
   );

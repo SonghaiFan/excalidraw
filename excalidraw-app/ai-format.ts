@@ -12,11 +12,14 @@ import {
 } from "@excalidraw/element";
 
 import type {
+  ExcalidrawElement,
   ExcalidrawFrameElement,
   ExcalidrawTextElement,
   NonDeleted,
   NonDeletedExcalidrawElement,
 } from "@excalidraw/element/types";
+
+import { getFrankThemeColorData } from "./frank/accent-colors";
 
 type TextCanvasBlock = {
   type: "h1" | "h2" | "h3" | "paragraph" | "list" | "quote" | "code" | "rule";
@@ -374,12 +377,14 @@ const createCanvasBlockSkeletons = ({
   y,
   width,
   isDark,
+  accentColor = "#002fa7",
 }: {
   block: CanvasBlock;
   x: number;
   y: number;
   width: number;
   isDark: boolean;
+  accentColor?: string;
 }) => {
   const scale = Math.min(2.5, Math.max(0.75, width / 640));
   const scaled = (value: number) => value * scale;
@@ -387,7 +392,7 @@ const createCanvasBlockSkeletons = ({
     isDark ? removeDarkModeFilter(value) : value;
   const ink = color(isDark ? "#f5f5f5" : "#171717");
   const muted = color(isDark ? "#a8a8a8" : "#686862");
-  const blue = color("#002fa7");
+  const blue = color(accentColor);
   const codeBackground = color(isDark ? "#1b1b1b" : "#f1f1ed");
   const tableBackground = color(isDark ? "#111111" : "#ffffff");
   const white = color("#ffffff");
@@ -402,6 +407,7 @@ const createCanvasBlockSkeletons = ({
     indent = 0,
     maxWidth = width - indent,
     gap = 18,
+    customData,
   }: {
     text: string;
     fontSize: number;
@@ -410,6 +416,7 @@ const createCanvasBlockSkeletons = ({
     indent?: number;
     maxWidth?: number;
     gap?: number;
+    customData?: ExcalidrawElement["customData"];
   }) => {
     const wrapped = wrapText(
       text,
@@ -428,6 +435,7 @@ const createCanvasBlockSkeletons = ({
       fontFamily,
       fontSize,
       strokeColor,
+      customData,
       roughness: 0,
     });
     cursorY += height + gap;
@@ -482,6 +490,13 @@ const createCanvasBlockSkeletons = ({
           backgroundColor: rowIndex === 0 ? blue : tableBackground,
           fillStyle: "solid",
           strokeColor: rowIndex === 0 ? blue : muted,
+          customData:
+            rowIndex === 0
+              ? getFrankThemeColorData({
+                  strokeColor: true,
+                  backgroundColor: true,
+                })
+              : undefined,
           roughness: 0,
           label: {
             text: wrappedCells[columnIndex],
@@ -550,6 +565,10 @@ const createCanvasBlockSkeletons = ({
       backgroundColor: blue,
       fillStyle: "solid",
       strokeColor: blue,
+      customData: getFrankThemeColorData({
+        strokeColor: true,
+        backgroundColor: true,
+      }),
       roughness: 0,
     });
   } else {
@@ -616,6 +635,7 @@ export const createFormattedCanvasElements = ({
   y,
   isDark,
   width = 640,
+  accentColor = "#002fa7",
 }: {
   markdown: string;
   provider: string;
@@ -624,12 +644,13 @@ export const createFormattedCanvasElements = ({
   y: number;
   isDark: boolean;
   width?: number;
+  accentColor?: string;
 }) => {
   const scale = Math.min(2.5, Math.max(0.75, width / 640));
   const color = (value: string) =>
     isDark ? removeDarkModeFilter(value) : value;
   const ink = color(isDark ? "#f5f5f5" : "#171717");
-  const blue = color("#002fa7");
+  const blue = color(accentColor);
   const { blocks, mermaid } = parseCanvasMarkdown(markdown);
   const skeletons: Parameters<typeof convertToExcalidrawElements>[0] = [
     {
@@ -641,6 +662,10 @@ export const createFormattedCanvasElements = ({
       backgroundColor: blue,
       fillStyle: "solid",
       strokeColor: blue,
+      customData: getFrankThemeColorData({
+        strokeColor: true,
+        backgroundColor: true,
+      }),
       roughness: 0,
     },
   ];
@@ -654,6 +679,7 @@ export const createFormattedCanvasElements = ({
     indent = 0,
     maxWidth = width - indent,
     gap = 18,
+    customData,
   }: {
     text: string;
     fontSize: number;
@@ -662,6 +688,7 @@ export const createFormattedCanvasElements = ({
     indent?: number;
     maxWidth?: number;
     gap?: number;
+    customData?: ExcalidrawElement["customData"];
   }) => {
     const wrapped = wrapText(
       text,
@@ -677,6 +704,7 @@ export const createFormattedCanvasElements = ({
       fontFamily,
       fontSize,
       strokeColor,
+      customData,
       roughness: 0,
     });
     cursorY += height + gap;
@@ -687,6 +715,7 @@ export const createFormattedCanvasElements = ({
     text: `FRANK AI / ${provider.toUpperCase()} / ${intent.toUpperCase()}`,
     fontSize: 11 * scale,
     strokeColor: blue,
+    customData: getFrankThemeColorData({ strokeColor: true }),
     gap: 24 * scale,
   });
 
@@ -697,6 +726,7 @@ export const createFormattedCanvasElements = ({
       y: cursorY,
       width,
       isDark,
+      accentColor,
     });
     skeletons.push(...section.skeletons);
     cursorY += section.height;
@@ -718,6 +748,7 @@ export const createStreamingCanvasBlockElements = ({
   width,
   isDark,
   previous = [],
+  accentColor = "#002fa7",
 }: {
   block: CanvasBlock;
   idPrefix: string;
@@ -726,8 +757,16 @@ export const createStreamingCanvasBlockElements = ({
   width: number;
   isDark: boolean;
   previous?: readonly NonDeletedExcalidrawElement[];
+  accentColor?: string;
 }) => {
-  const section = createCanvasBlockSkeletons({ block, x, y, width, isDark });
+  const section = createCanvasBlockSkeletons({
+    block,
+    x,
+    y,
+    width,
+    isDark,
+    accentColor,
+  });
   const skeletons = section.skeletons.map((skeleton, index) => ({
     ...skeleton,
     id: `${idPrefix}-${index}`,
@@ -822,12 +861,14 @@ export const frameCanvasElements = ({
   isDark,
   frame,
   bounds,
+  accentColor = "#002fa7",
 }: {
   elements: readonly NonDeletedExcalidrawElement[];
   name: string;
   isDark: boolean;
   frame?: NonDeleted<ExcalidrawFrameElement>;
   bounds?: { x: number; y: number; width: number; height: number };
+  accentColor?: string;
 }) => {
   const padding = 32;
   const [minX, minY, maxX, maxY] = bounds
@@ -844,7 +885,7 @@ export const frameCanvasElements = ({
     width: maxX - minX + padding * 2,
     height: maxY - minY + padding * 2,
   };
-  const blue = isDark ? removeDarkModeFilter("#002fa7") : "#002fa7";
+  const blue = isDark ? removeDarkModeFilter(accentColor) : accentColor;
   const baseFrame =
     frame ||
     newFrameElement({
@@ -853,11 +894,16 @@ export const frameCanvasElements = ({
       strokeColor: blue,
       backgroundColor: "transparent",
       roughness: 0,
+      customData: getFrankThemeColorData({ strokeColor: true }),
     });
   const nextFrame = newElementWith(baseFrame, {
     ...frameBounds,
     name,
     strokeColor: blue,
+    customData: getFrankThemeColorData(
+      { strokeColor: true },
+      baseFrame.customData,
+    ),
   });
   const children = elements.map((element) =>
     newElementWith(element, { frameId: nextFrame.id }),
