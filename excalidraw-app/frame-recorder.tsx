@@ -53,6 +53,7 @@ const FRAME_RECORDER_LAYOUTS: readonly {
 }[] = [
   { value: "full-camera", label: "Full camera" },
   { value: "split", label: "Camera + canvas" },
+  { value: "canvas-pip", label: "Canvas + PIP" },
 ];
 
 const CAMERA_POSITIONS = {
@@ -87,15 +88,14 @@ const readRecorderSettings = (): RecorderSettings => {
     const saved = JSON.parse(
       window.localStorage.getItem(RECORDER_SETTINGS_KEY) || "null",
     );
-    const scope: RecorderScope =
-      saved?.scope === "canvas" || saved?.layout === "canvas-pip"
-        ? "canvas"
-        : "frame";
+    const scope: RecorderScope = saved?.scope === "canvas" ? "canvas" : "frame";
     const layout: RecorderLayout =
       scope === "canvas"
         ? "canvas-pip"
         : saved?.layout === "full-camera"
         ? "full-camera"
+        : saved?.layout === "canvas-pip"
+        ? "canvas-pip"
         : "split";
     return {
       scope,
@@ -481,7 +481,8 @@ export const FrameRecorder = ({
     if (statusRef.current === "recording" || statusRef.current === "paused") {
       return;
     }
-    const layout: RecorderLayout = scope === "canvas" ? "canvas-pip" : "split";
+    const layout: RecorderLayout =
+      scope === "canvas" ? "canvas-pip" : layoutRef.current;
     scopeRef.current = scope;
     layoutRef.current = layout;
     frameCanvasRef.current = null;
@@ -1359,7 +1360,7 @@ export const FrameRecorder = ({
               </>
             ) : null}
             <small>
-              {recorderSettings.scope === "canvas"
+              {recorderSettings.layout === "canvas-pip"
                 ? "Drag the camera directly for a custom position."
                 : recorderSettings.layout === "full-camera"
                 ? "Frame content stays above the camera video."
@@ -1452,7 +1453,6 @@ export const FrameRecorder = ({
                 className={`frank-recorder__camera ${
                   isOpen &&
                   hasRecordingTarget &&
-                  recorderSettings.scope === "canvas" &&
                   recorderSettings.layout === "canvas-pip"
                     ? "frank-recorder__camera--visible"
                     : ""
