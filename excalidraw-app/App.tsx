@@ -79,8 +79,9 @@ import {
   type FramePreset,
 } from "./frank/frame-utils";
 import {
-  areElementsUnchanged,
+  areElementsAtKnownRevisions,
   FrankSceneLifecycle,
+  getElementRevisionKey,
   type FrankSceneSnapshot,
 } from "./frank/scene-lifecycle";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
@@ -339,7 +340,7 @@ const AICanvasPrompt = ({
     let headerElements: NonDeletedExcalidrawElement[] = [...header.elements];
     let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
     let ownedIds = new Set<string>();
-    let ownedVersions = new Map<string, number>();
+    const ownedRevisions = new Map<string, Set<string>>();
     let didFocus = false;
     let cancelled = false;
     const responseId = crypto.randomUUID();
@@ -390,9 +391,16 @@ const AICanvasPrompt = ({
             : newElementWith(element, { isDeleted: true }),
         );
       ownedIds = nextOwnedIds;
-      ownedVersions = new Map(
-        elements.map((element) => [element.id, element.version]),
-      );
+      for (const id of ownedRevisions.keys()) {
+        if (!nextOwnedIds.has(id)) {
+          ownedRevisions.delete(id);
+        }
+      }
+      for (const element of elements) {
+        const revisions = ownedRevisions.get(element.id) || new Set<string>();
+        revisions.add(getElementRevisionKey(element));
+        ownedRevisions.set(element.id, revisions);
+      }
       excalidrawAPI.updateScene({
         elements: [
           ...retainedElements,
@@ -610,7 +618,7 @@ const AICanvasPrompt = ({
       },
       hasRendered: () => ownedIds.size > 0,
       isSceneIntact: (elements: FrankSceneSnapshot["elements"]) =>
-        !cancelled && areElementsUnchanged(elements, ownedVersions),
+        !cancelled && areElementsAtKnownRevisions(elements, ownedRevisions),
     };
   };
 
