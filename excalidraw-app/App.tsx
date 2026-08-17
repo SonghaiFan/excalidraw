@@ -467,7 +467,7 @@ const AICanvasPrompt = ({
         ];
         const framed = frameCanvasElements({
           elements: pageElements,
-          name: `AI / ${question.slice(0, 42)} / PAGE ${pageIndex + 1} OF ${
+          name: `AI / ${question.slice(0, 42)} / FRAME ${pageIndex + 1} OF ${
             pages.length
           }`,
           isDark,

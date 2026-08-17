@@ -124,7 +124,7 @@ export const FramePages = ({
     const frame = newFrameElement({
       ...position,
       ...size,
-      name: `Page ${frames.length + 1}`,
+      name: `Frame ${frames.length + 1}`,
       strokeColor: currentFrame?.strokeColor || "#002fa7",
       backgroundColor: "transparent",
       fillStyle: currentFrame?.fillStyle,
@@ -155,9 +155,9 @@ export const FramePages = ({
     frames.find((frame) => frame.id === selectedFrameId) || frames.at(-1);
 
   return (
-    <nav className={`frank-pages frank-pages--${theme}`} aria-label="Pages">
+    <nav className={`frank-pages frank-pages--${theme}`} aria-label="Frames">
       <div className="frank-pages__heading">
-        <span>Pages</span>
+        <span>Frames</span>
         <output aria-live="polite">{frames.length}</output>
       </div>
       <div className="frank-pages__list">
@@ -165,11 +165,11 @@ export const FramePages = ({
           <button
             key={frame.id}
             type="button"
-            aria-label={`Open page ${index + 1}, ${Math.round(
+            aria-label={`Open frame ${index + 1}, ${Math.round(
               frame.width,
             )} by ${Math.round(frame.height)}`}
             aria-current={frame.id === selectedFrameId ? "page" : undefined}
-            title={frame.name || `Page ${index + 1}`}
+            title={frame.name || `Frame ${index + 1}`}
             onClick={() => selectFrame(frame)}
           >
             <span
@@ -184,19 +184,23 @@ export const FramePages = ({
       <button
         className="frank-pages__add"
         type="button"
-        aria-label="Add page"
+        aria-label="Add frame"
         aria-expanded={showSizes}
         onClick={() => setShowSizes((isVisible) => !isVisible)}
       >
         <span aria-hidden="true">+</span>
       </button>
       {showSizes ? (
-        <div className="frank-pages__sizes" role="group" aria-label="Page size">
+        <div
+          className="frank-pages__sizes"
+          role="group"
+          aria-label="Frame size"
+        >
           <div className="frank-pages__sizes-heading">
-            <span>New Page</span>
+            <span>New Frame</span>
             <button
               type="button"
-              aria-label="Close page sizes"
+              aria-label="Close frame sizes"
               onClick={() => setShowSizes(false)}
             >
               ×
