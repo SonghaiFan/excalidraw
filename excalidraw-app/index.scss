@@ -1188,25 +1188,14 @@
     z-index: 19;
     display: none;
     overflow: hidden;
-    border: 3px solid #ffffff;
     border-radius: 50%;
     background: #000000;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
     cursor: grab;
     touch-action: none;
     user-select: none;
 
     &--visible {
       display: block;
-    }
-
-    &--recording {
-      border-color: #d9342b;
-      box-shadow: 0 0 0 2px rgba(217, 52, 43, 0.2);
-    }
-
-    &--paused {
-      border-color: var(--frank-blue);
     }
 
     &:active {

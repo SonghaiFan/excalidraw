@@ -689,20 +689,6 @@ export const FrameRecorder = ({
       }
       drawVideoCover(context, video, layout.camera);
       context.restore();
-      if (layout.cameraShape === "circle") {
-        context.strokeStyle =
-          statusRef.current === "recording" ? "#d9342b" : "#ffffff";
-        context.lineWidth = Math.max(2, layout.camera.width * 0.018);
-        context.beginPath();
-        context.arc(
-          layout.camera.x + layout.camera.width / 2,
-          layout.camera.y + layout.camera.height / 2,
-          layout.camera.width / 2,
-          0,
-          Math.PI * 2,
-        );
-        context.stroke();
-      }
     };
 
     if (layout.canvasLayer === "above") {
@@ -1419,12 +1405,6 @@ export const FrameRecorder = ({
                   recorderSettings.layout === "canvas-pip"
                     ? "frank-recorder__camera--visible"
                     : ""
-                } ${
-                  status === "recording"
-                    ? "frank-recorder__camera--recording"
-                    : ""
-                } ${
-                  status === "paused" ? "frank-recorder__camera--paused" : ""
                 }`}
                 onPointerDown={(event) => {
                   event.currentTarget.setPointerCapture(event.pointerId);
