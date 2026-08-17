@@ -1343,11 +1343,14 @@
 
   @at-root .frank-recorder__camera {
     position: fixed;
+    top: 0;
+    left: 0;
     z-index: 19;
     display: none;
     overflow: hidden;
     background: #000000;
     pointer-events: none;
+    will-change: transform, width, height;
 
     &--visible {
       display: block;

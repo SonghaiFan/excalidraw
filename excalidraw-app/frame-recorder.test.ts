@@ -9,6 +9,7 @@ import {
   clampCameraPosition,
   formatRecordingTime,
   getAudioSyncDelay,
+  getCameraPreviewLayoutRects,
   getCameraFrameDelay,
   getClipInsets,
   getFrameSceneSignature,
@@ -184,6 +185,30 @@ describe("frame recorder", () => {
 
     expect(right).toBe(frame.x + frame.width);
     expect(bottom).toBe(frame.y + frame.height);
+  });
+
+  it("keeps PIP geometry relative to the Frame while zooming", () => {
+    const position = { x: 0.8, y: 0.75 };
+    const atOneX = getCameraPreviewLayoutRects(
+      "canvas-pip",
+      { x: 100, y: 80, width: 400, height: 600 },
+      position,
+      0.2,
+    );
+    const atTwoX = getCameraPreviewLayoutRects(
+      "canvas-pip",
+      { x: 200, y: 160, width: 800, height: 1200 },
+      position,
+      0.2,
+    );
+
+    expect(atTwoX.camera).toEqual({
+      x: atOneX.camera.x * 2,
+      y: atOneX.camera.y * 2,
+      width: atOneX.camera.width * 2,
+      height: atOneX.camera.height * 2,
+    });
+    expect(position).toEqual({ x: 0.8, y: 0.75 });
   });
 
   it("refreshes a recording background only for changes in its frame", () => {

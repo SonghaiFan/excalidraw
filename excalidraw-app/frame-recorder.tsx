@@ -262,6 +262,33 @@ export const getRecordingLayoutRects = (
   } as const;
 };
 
+export const getCameraPreviewLayoutRects = (
+  layout: RecorderLayout,
+  bounds: ViewportRect,
+  cameraPosition: CameraPosition,
+  cameraSize: number,
+  splitPosition: SplitPosition = "top",
+  splitRatio = 0.45,
+) => {
+  const previewPosition =
+    layout === "canvas-pip"
+      ? clampCameraPosition(
+          cameraPosition,
+          bounds,
+          Math.min(bounds.width, bounds.height) * cameraSize,
+        )
+      : cameraPosition;
+  return getRecordingLayoutRects(
+    layout,
+    bounds.width,
+    bounds.height,
+    previewPosition,
+    cameraSize,
+    splitPosition,
+    splitRatio,
+  );
+};
+
 export const getClipInsets = (child: ViewportRect, bounds: ViewportRect) => ({
   top: Math.max(0, bounds.y - child.y),
   right: Math.max(0, child.x + child.width - (bounds.x + bounds.width)),
@@ -709,26 +736,11 @@ export const FrameRecorder = ({
     if (!camera || currentLayout === "full-camera") {
       return;
     }
-    let previewCameraSize = cameraSizeRef.current;
-    if (currentLayout === "canvas-pip") {
-      const shortestSide = Math.min(rect.width, rect.height);
-      const size = Math.min(
-        shortestSide,
-        Math.min(240, Math.max(48, shortestSide * cameraSizeRef.current)),
-      );
-      cameraPositionRef.current = clampCameraPosition(
-        cameraPositionRef.current,
-        rect,
-        size,
-      );
-      previewCameraSize = size / shortestSide;
-    }
-    const previewLayout = getRecordingLayoutRects(
+    const previewLayout = getCameraPreviewLayoutRects(
       currentLayout,
-      rect.width,
-      rect.height,
+      rect,
       cameraPositionRef.current,
-      previewCameraSize,
+      cameraSizeRef.current,
       splitPositionRef.current,
       splitRatioRef.current,
     );
@@ -741,8 +753,7 @@ export const FrameRecorder = ({
     const clip = getClipInsets(cameraRect, rect);
     camera.style.width = `${cameraRect.width}px`;
     camera.style.height = `${cameraRect.height}px`;
-    camera.style.left = `${cameraRect.x}px`;
-    camera.style.top = `${cameraRect.y}px`;
+    camera.style.transform = `translate3d(${cameraRect.x}px, ${cameraRect.y}px, 0)`;
     camera.style.clipPath = `inset(${clip.top}px ${clip.right}px ${
       clip.bottom
     }px ${clip.left}px${
