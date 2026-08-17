@@ -1346,28 +1346,27 @@
     z-index: 19;
     display: none;
     overflow: hidden;
-    border-radius: 50%;
     background: #000000;
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
+    pointer-events: none;
 
     &--visible {
       display: block;
     }
 
-    // Frame previews already contain the composited camera image. Keep this
-    // overlay as a transparent drag target so the video is not shown twice.
-    &--interaction-only {
-      background: transparent;
-
-      video {
-        opacity: 0;
-      }
+    &--split {
+      border-radius: 0;
     }
 
-    &:active {
-      cursor: grabbing;
+    &--pip {
+      border-radius: 50%;
+      cursor: grab;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+
+      &:active {
+        cursor: grabbing;
+      }
     }
 
     video {

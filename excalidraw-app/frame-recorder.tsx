@@ -120,6 +120,12 @@ export const getAudioSyncDelay = (
     Math.max(0, (cameraFrameDelay || 0) - Math.max(0, microphoneLatency)),
   );
 
+export const shouldRenderRecordingComposite = (
+  scope: RecorderScope,
+  layout: RecorderLayout,
+  isRecording: boolean,
+) => isRecording || (scope === "frame" && layout === "full-camera");
+
 const readRecorderSettings = (): RecorderSettings => {
   const fallback: RecorderSettings = {
     scope: "frame",
@@ -661,7 +667,9 @@ export const FrameRecorder = ({
       resizeCaptureCanvas(source);
     }
     updateRecordingOverlay(excalidrawAPI.getAppState());
-    scheduleFrameCanvasRefreshRef.current();
+    if (shouldRenderRecordingComposite(scope, layout, false)) {
+      scheduleFrameCanvasRefreshRef.current();
+    }
     if (isOpenRef.current && !mediaStreamRef.current) {
       void startPreview();
     }
@@ -670,11 +678,13 @@ export const FrameRecorder = ({
   const setSplitPosition = (splitPosition: SplitPosition) => {
     splitPositionRef.current = splitPosition;
     setRecorderSettings((settings) => ({ ...settings, splitPosition }));
+    updateRecordingOverlay(excalidrawAPI.getAppState());
   };
 
   const setSplitRatio = (splitRatio: number) => {
     splitRatioRef.current = splitRatio;
     setRecorderSettings((settings) => ({ ...settings, splitRatio }));
+    updateRecordingOverlay(excalidrawAPI.getAppState());
   };
 
   const updateRecordingOverlay = (appState: AppState) => {
@@ -683,7 +693,11 @@ export const FrameRecorder = ({
       return;
     }
     const preview = captureCanvasRef.current;
-    if (preview) {
+    if (
+      preview &&
+      scopeRef.current === "frame" &&
+      layoutRef.current === "full-camera"
+    ) {
       preview.style.left = `${rect.x}px`;
       preview.style.top = `${rect.y}px`;
       preview.style.width = `${rect.width}px`;
@@ -691,31 +705,49 @@ export const FrameRecorder = ({
       preview.style.clipPath = "inset(0)";
     }
     const camera = cameraRef.current;
-    if (!camera || layoutRef.current !== "canvas-pip") {
+    const currentLayout = layoutRef.current;
+    if (!camera || currentLayout === "full-camera") {
       return;
     }
-    const shortestSide = Math.min(rect.width, rect.height);
-    const size = Math.min(
-      shortestSide,
-      Math.min(240, Math.max(48, shortestSide * cameraSizeRef.current)),
-    );
-    cameraPositionRef.current = clampCameraPosition(
+    let previewCameraSize = cameraSizeRef.current;
+    if (currentLayout === "canvas-pip") {
+      const shortestSide = Math.min(rect.width, rect.height);
+      const size = Math.min(
+        shortestSide,
+        Math.min(240, Math.max(48, shortestSide * cameraSizeRef.current)),
+      );
+      cameraPositionRef.current = clampCameraPosition(
+        cameraPositionRef.current,
+        rect,
+        size,
+      );
+      previewCameraSize = size / shortestSide;
+    }
+    const previewLayout = getRecordingLayoutRects(
+      currentLayout,
+      rect.width,
+      rect.height,
       cameraPositionRef.current,
-      rect,
-      size,
+      previewCameraSize,
+      splitPositionRef.current,
+      splitRatioRef.current,
     );
     const cameraRect = {
-      x: rect.x + rect.width * cameraPositionRef.current.x - size / 2,
-      y: rect.y + rect.height * cameraPositionRef.current.y - size / 2,
-      width: size,
-      height: size,
+      x: rect.x + previewLayout.camera.x,
+      y: rect.y + previewLayout.camera.y,
+      width: previewLayout.camera.width,
+      height: previewLayout.camera.height,
     };
     const clip = getClipInsets(cameraRect, rect);
     camera.style.width = `${cameraRect.width}px`;
     camera.style.height = `${cameraRect.height}px`;
     camera.style.left = `${cameraRect.x}px`;
     camera.style.top = `${cameraRect.y}px`;
-    camera.style.clipPath = `inset(${clip.top}px ${clip.right}px ${clip.bottom}px ${clip.left}px round 50%)`;
+    camera.style.clipPath = `inset(${clip.top}px ${clip.right}px ${
+      clip.bottom
+    }px ${clip.left}px${
+      previewLayout.cameraShape === "circle" ? " round 50%" : ""
+    })`;
   };
 
   const refreshFrameCanvas = async () => {
@@ -771,7 +803,7 @@ export const FrameRecorder = ({
       );
       frameAppearanceRef.current = `${appState.theme}:${appState.viewBackgroundColor}`;
       drawRecordingFrameRef.current();
-      setFramePreviewVisible(true);
+      setFramePreviewVisible(layoutRef.current === "full-camera");
       return true;
     } catch {
       if (exportId === frameExportIdRef.current) {
@@ -880,7 +912,14 @@ export const FrameRecorder = ({
     if (animationFrameRef.current === null) {
       const renderOverlay = () => {
         updateRecordingOverlay(excalidrawAPI.getAppState());
-        if (!supportsVideoFrameCallbacks) {
+        if (
+          !supportsVideoFrameCallbacks &&
+          shouldRenderRecordingComposite(
+            scopeRef.current,
+            layoutRef.current,
+            recorderRef.current?.state === "recording",
+          )
+        ) {
           drawRecordingFrame();
         }
         animationFrameRef.current = window.requestAnimationFrame(renderOverlay);
@@ -895,7 +934,15 @@ export const FrameRecorder = ({
     ) {
       const renderVideoFrame: VideoFrameRequestCallback = (now, metadata) => {
         updateRecordingAudioDelay(now, metadata);
-        drawRecordingFrame();
+        if (
+          shouldRenderRecordingComposite(
+            scopeRef.current,
+            layoutRef.current,
+            recorderRef.current?.state === "recording",
+          )
+        ) {
+          drawRecordingFrame();
+        }
         videoFrameCallbackRef.current =
           video.requestVideoFrameCallback(renderVideoFrame);
       };
@@ -934,7 +981,14 @@ export const FrameRecorder = ({
     if (previewPromiseRef.current) {
       return previewPromiseRef.current;
     }
-    if (!(await refreshFrameCanvas())) {
+    if (
+      shouldRenderRecordingComposite(
+        scopeRef.current,
+        layoutRef.current,
+        false,
+      ) &&
+      !(await refreshFrameCanvas())
+    ) {
       return null;
     }
     if (!resizeCaptureCanvas(source)) {
@@ -1357,7 +1411,15 @@ export const FrameRecorder = ({
           frameAppearanceRef.current = "";
           setFramePreviewVisible(false);
           resizeCaptureCanvas(selectedFrame);
-          scheduleFrameCanvasRefreshRef.current();
+          if (
+            shouldRenderRecordingComposite(
+              scopeRef.current,
+              layoutRef.current,
+              recorderRef.current?.state === "recording",
+            )
+          ) {
+            scheduleFrameCanvasRefreshRef.current();
+          }
         }
       }
 
@@ -1366,17 +1428,24 @@ export const FrameRecorder = ({
         currentFrameId &&
         snapshot.activeElementIds.has(currentFrameId)
       ) {
-        const nextSignature = getFrameSceneSignature(
-          snapshot.elements,
-          currentFrameId,
+        const shouldRefreshComposite = shouldRenderRecordingComposite(
+          scopeRef.current,
+          layoutRef.current,
+          recorderRef.current?.state === "recording",
         );
-        const appState = excalidrawAPI.getAppState();
-        const nextAppearance = `${appState.theme}:${appState.viewBackgroundColor}`;
-        if (
-          nextSignature !== frameSceneSignatureRef.current ||
-          nextAppearance !== frameAppearanceRef.current
-        ) {
-          scheduleFrameCanvasRefreshRef.current();
+        if (shouldRefreshComposite) {
+          const nextSignature = getFrameSceneSignature(
+            snapshot.elements,
+            currentFrameId,
+          );
+          const appState = excalidrawAPI.getAppState();
+          const nextAppearance = `${appState.theme}:${appState.viewBackgroundColor}`;
+          if (
+            nextSignature !== frameSceneSignatureRef.current ||
+            nextAppearance !== frameAppearanceRef.current
+          ) {
+            scheduleFrameCanvasRefreshRef.current();
+          }
         }
       }
 
@@ -1679,7 +1748,12 @@ export const FrameRecorder = ({
                 className={`frank-recorder__preview ${
                   isOpen &&
                   hasRecordingTarget &&
-                  recorderSettings.scope === "frame"
+                  status !== "idle" &&
+                  shouldRenderRecordingComposite(
+                    recorderSettings.scope,
+                    recorderSettings.layout,
+                    false,
+                  )
                     ? "frank-recorder__preview--visible"
                     : ""
                 }`}
@@ -1690,13 +1764,15 @@ export const FrameRecorder = ({
                 className={`frank-recorder__camera ${
                   isOpen &&
                   hasRecordingTarget &&
-                  recorderSettings.layout === "canvas-pip"
+                  status !== "idle" &&
+                  recorderSettings.layout !== "full-camera"
                     ? "frank-recorder__camera--visible"
                     : ""
                 } ${
-                  recorderSettings.scope === "frame" &&
                   recorderSettings.layout === "canvas-pip"
-                    ? "frank-recorder__camera--interaction-only"
+                    ? "frank-recorder__camera--pip"
+                    : recorderSettings.layout === "split"
+                    ? "frank-recorder__camera--split"
                     : ""
                 }`}
                 onPointerDown={(event) => {

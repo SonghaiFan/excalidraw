@@ -16,6 +16,7 @@ import {
   getRecordingDownloadMetadata,
   getRecordingDimensions,
   getRecordingLayoutRects,
+  shouldRenderRecordingComposite,
   smoothCameraFrameDelay,
 } from "./frame-recorder";
 import {
@@ -149,6 +150,20 @@ describe("frame recorder", () => {
       cameraShape: "circle",
       canvasLayer: "below",
     });
+  });
+
+  it("keeps Split and PIP previews on the native Excalidraw canvas", () => {
+    expect(shouldRenderRecordingComposite("frame", "split", false)).toBe(false);
+    expect(shouldRenderRecordingComposite("frame", "canvas-pip", false)).toBe(
+      false,
+    );
+    expect(shouldRenderRecordingComposite("canvas", "canvas-pip", false)).toBe(
+      false,
+    );
+    expect(shouldRenderRecordingComposite("frame", "full-camera", false)).toBe(
+      true,
+    );
+    expect(shouldRenderRecordingComposite("frame", "split", true)).toBe(true);
   });
 
   it("clips an HTML camera preview at its recording boundary", () => {
