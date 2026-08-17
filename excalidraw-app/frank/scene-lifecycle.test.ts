@@ -7,10 +7,8 @@ import type {
 } from "@excalidraw/excalidraw/types";
 
 import {
-  areElementsAtKnownRevisions,
   classifySceneTransition,
   FrankSceneLifecycle,
-  getElementRevisionKey,
 } from "./scene-lifecycle";
 
 const element = (id: string, isDeleted = false) =>
@@ -65,44 +63,5 @@ describe("classifySceneTransition", () => {
     )(scene, { selectedElementIds: {} } as AppState);
 
     expect(transitions).toEqual(["clear"]);
-  });
-
-  it("detects user edits or deletes to elements owned by a live operation", () => {
-    const firstRevision = {
-      ...element("answer"),
-      version: 3,
-      versionNonce: 30,
-    };
-    const latestRevision = {
-      ...element("answer"),
-      version: 4,
-      versionNonce: 40,
-    };
-    const expected = new Map([
-      [
-        "answer",
-        new Set([
-          getElementRevisionKey(firstRevision),
-          getElementRevisionKey(latestRevision),
-        ]),
-      ],
-    ]);
-
-    expect(areElementsAtKnownRevisions([firstRevision], expected)).toBe(true);
-    expect(areElementsAtKnownRevisions([latestRevision], expected)).toBe(true);
-    expect(
-      areElementsAtKnownRevisions(
-        [
-          {
-            ...latestRevision,
-            versionNonce: 41,
-          },
-        ],
-        expected,
-      ),
-    ).toBe(false);
-    expect(areElementsAtKnownRevisions([element("other")], expected)).toBe(
-      false,
-    );
   });
 });

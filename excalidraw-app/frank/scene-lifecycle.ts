@@ -13,32 +13,6 @@ export type FrankSceneSnapshot = {
   transition: FrankSceneTransition;
 };
 
-export const getElementRevisionKey = (element: ExcalidrawElement) =>
-  `${element.version}:${element.versionNonce}`;
-
-export const areElementsAtKnownRevisions = (
-  elements: readonly ExcalidrawElement[],
-  expectedRevisions: ReadonlyMap<string, ReadonlySet<string>>,
-) => {
-  if (expectedRevisions.size === 0) {
-    return true;
-  }
-  const elementsById = new Map(
-    elements.map((element) => [element.id, element]),
-  );
-  for (const [id, revisions] of expectedRevisions) {
-    const element = elementsById.get(id);
-    if (
-      !element ||
-      element.isDeleted ||
-      !revisions.has(getElementRevisionKey(element))
-    ) {
-      return false;
-    }
-  }
-  return true;
-};
-
 type SceneListener = (snapshot: FrankSceneSnapshot) => void;
 
 const getActiveElementIds = (elements: readonly ExcalidrawElement[]) =>

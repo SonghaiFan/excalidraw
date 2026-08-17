@@ -78,12 +78,7 @@ import {
   FRAME_PRESETS,
   type FramePreset,
 } from "./frank/frame-utils";
-import {
-  areElementsAtKnownRevisions,
-  FrankSceneLifecycle,
-  getElementRevisionKey,
-  type FrankSceneSnapshot,
-} from "./frank/scene-lifecycle";
+import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -238,7 +233,7 @@ const AICanvasPrompt = ({
     renderer: {
       cancel: () => void;
       hasRendered: () => boolean;
-      isSceneIntact: (elements: FrankSceneSnapshot["elements"]) => boolean;
+      isSceneIntact: (activeElementIds: ReadonlySet<string>) => boolean;
     };
   } | null>(null);
 
@@ -282,7 +277,7 @@ const AICanvasPrompt = ({
           ));
       if (
         sceneChangedBeforeFirstRender ||
-        !activeRequest.renderer.isSceneIntact(snapshot.elements)
+        !activeRequest.renderer.isSceneIntact(snapshot.activeElementIds)
       ) {
         cancelActiveRequest();
         setIsLoading(false);
@@ -340,7 +335,6 @@ const AICanvasPrompt = ({
     let headerElements: NonDeletedExcalidrawElement[] = [...header.elements];
     let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
     let ownedIds = new Set<string>();
-    const ownedRevisions = new Map<string, Set<string>>();
     let didFocus = false;
     let cancelled = false;
     const responseId = crypto.randomUUID();
@@ -391,16 +385,6 @@ const AICanvasPrompt = ({
             : newElementWith(element, { isDeleted: true }),
         );
       ownedIds = nextOwnedIds;
-      for (const id of ownedRevisions.keys()) {
-        if (!nextOwnedIds.has(id)) {
-          ownedRevisions.delete(id);
-        }
-      }
-      for (const element of elements) {
-        const revisions = ownedRevisions.get(element.id) || new Set<string>();
-        revisions.add(getElementRevisionKey(element));
-        ownedRevisions.set(element.id, revisions);
-      }
       excalidrawAPI.updateScene({
         elements: [
           ...retainedElements,
@@ -617,8 +601,10 @@ const AICanvasPrompt = ({
         cancelled = true;
       },
       hasRendered: () => ownedIds.size > 0,
-      isSceneIntact: (elements: FrankSceneSnapshot["elements"]) =>
-        !cancelled && areElementsAtKnownRevisions(elements, ownedRevisions),
+      isSceneIntact: (activeElementIds: ReadonlySet<string>) =>
+        !cancelled &&
+        (ownedIds.size === 0 ||
+          [...ownedIds].every((id) => activeElementIds.has(id))),
     };
   };
 
