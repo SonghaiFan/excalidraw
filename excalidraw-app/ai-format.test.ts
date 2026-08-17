@@ -282,7 +282,7 @@ describe("AI canvas elements", () => {
     expect(
       document.elements.some(
         (element) =>
-          element.strokeColor === "#002fa7" &&
+          element.strokeColor === "#000000" &&
           element.customData?.frankThemeColor,
       ),
     ).toBe(true);

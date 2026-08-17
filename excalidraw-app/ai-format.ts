@@ -377,7 +377,7 @@ const createCanvasBlockSkeletons = ({
   y,
   width,
   isDark,
-  accentColor = "#002fa7",
+  accentColor = "#000000",
 }: {
   block: CanvasBlock;
   x: number;
@@ -635,7 +635,7 @@ export const createFormattedCanvasElements = ({
   y,
   isDark,
   width = 640,
-  accentColor = "#002fa7",
+  accentColor = "#000000",
 }: {
   markdown: string;
   provider: string;
@@ -748,7 +748,7 @@ export const createStreamingCanvasBlockElements = ({
   width,
   isDark,
   previous = [],
-  accentColor = "#002fa7",
+  accentColor = "#000000",
 }: {
   block: CanvasBlock;
   idPrefix: string;
@@ -861,7 +861,7 @@ export const frameCanvasElements = ({
   isDark,
   frame,
   bounds,
-  accentColor = "#002fa7",
+  accentColor = "#000000",
 }: {
   elements: readonly NonDeletedExcalidrawElement[];
   name: string;

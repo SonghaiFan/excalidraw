@@ -95,6 +95,7 @@ import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 import {
   DEFAULT_FRANK_ACCENT,
   FRANK_ACCENT_STORAGE_KEY,
+  getFrankAccentPalette,
   rethemeFrankElements,
   resolveFrankAccent,
 } from "./frank/accent-colors";
@@ -1277,12 +1278,17 @@ const ExcalidrawWrapper = () => {
     }
   });
   const accent = resolveFrankAccent(accentId);
-  const previousAccentRef = useRef(DEFAULT_FRANK_ACCENT);
+  const isDarkTheme = editorTheme === "dark";
+  const accentPalette = getFrankAccentPalette(accent, isDarkTheme);
+  const previousAccentRef = useRef({
+    accent: DEFAULT_FRANK_ACCENT,
+    isDark: false,
+  });
   const accentStyle = {
-    "--frank-accent": accent.color,
-    "--frank-accent-dark": accent.dark,
-    "--frank-accent-soft": accent.soft,
-    "--frank-accent-ink": accent.ink,
+    "--frank-accent": accentPalette.color,
+    "--frank-accent-dark": accentPalette.hover,
+    "--frank-accent-soft": accentPalette.soft,
+    "--frank-accent-contrast": accentPalette.ink,
   } as CSSProperties;
 
   useEffect(() => {
@@ -1292,34 +1298,39 @@ const ExcalidrawWrapper = () => {
       // The accent still applies for the current session.
     }
     const root = document.documentElement;
-    root.style.setProperty("--frank-accent", accent.color);
-    root.style.setProperty("--frank-accent-dark", accent.dark);
-    root.style.setProperty("--frank-accent-soft", accent.soft);
-    root.style.setProperty("--frank-accent-ink", accent.ink);
+    root.style.setProperty("--frank-accent", accentPalette.color);
+    root.style.setProperty("--frank-accent-dark", accentPalette.hover);
+    root.style.setProperty("--frank-accent-soft", accentPalette.soft);
+    root.style.setProperty("--frank-accent-contrast", accentPalette.ink);
     document
       .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-      ?.setAttribute("content", accent.color);
-  }, [accent]);
+      ?.setAttribute("content", accentPalette.color);
+  }, [accent, accentPalette]);
 
   useEffect(() => {
     const previousAccent = previousAccentRef.current;
-    if (!excalidrawAPI || previousAccent.id === accent.id) {
+    if (
+      !excalidrawAPI ||
+      (previousAccent.accent.id === accent.id &&
+        previousAccent.isDark === isDarkTheme)
+    ) {
       return;
     }
     const rethemed = rethemeFrankElements({
       elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
-      previousAccent,
+      previousAccent: previousAccent.accent,
       nextAccent: accent,
-      isDark: excalidrawAPI.getAppState().theme === "dark",
+      wasDark: previousAccent.isDark,
+      isDark: isDarkTheme,
     });
-    previousAccentRef.current = accent;
+    previousAccentRef.current = { accent, isDark: isDarkTheme };
     if (rethemed.didChange) {
       excalidrawAPI.updateScene({
         elements: rethemed.elements as OrderedExcalidrawElement[],
         captureUpdate: CaptureUpdateAction.NEVER,
       });
     }
-  }, [accent, excalidrawAPI]);
+  }, [accent, excalidrawAPI, isDarkTheme]);
 
   const [langCode, setLangCode] = useAppLangCode();
 
@@ -1786,7 +1797,7 @@ const ExcalidrawWrapper = () => {
         <CanvasToolDock
           excalidrawAPI={excalidrawAPI}
           theme={editorTheme}
-          accentColor={accent.color}
+          accentColor={accentPalette.color}
         />
       ) : null}
     </div>

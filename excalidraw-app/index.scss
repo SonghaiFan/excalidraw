@@ -97,10 +97,10 @@
 
 .excalidraw-app {
   position: relative;
-  --frank-blue: var(--frank-accent, #002fa7);
-  --frank-blue-dark: var(--frank-accent-dark, #00247f);
-  --frank-blue-soft: var(--frank-accent-soft, #e7edff);
-  --frank-accent-ink: #ffffff;
+  --frank-blue: var(--frank-accent, #000000);
+  --frank-blue-dark: var(--frank-accent-dark, #242424);
+  --frank-blue-soft: var(--frank-accent-soft, #ededed);
+  --frank-accent-ink: var(--frank-accent-contrast, #ffffff);
   --frank-orange: #ff8000;
   --frank-paper: #fbfbf8;
   --frank-ink: #171717;
@@ -1892,9 +1892,10 @@
 
 .excalidraw-app .excalidraw,
 .excalidraw.excalidraw-modal-container {
-  --frank-blue: var(--frank-accent, #002fa7);
-  --frank-blue-dark: var(--frank-accent-dark, #00247f);
-  --frank-blue-soft: var(--frank-accent-soft, #e7edff);
+  --frank-blue: var(--frank-accent, #000000);
+  --frank-blue-dark: var(--frank-accent-dark, #242424);
+  --frank-blue-soft: var(--frank-accent-soft, #ededed);
+  --frank-accent-ink: var(--frank-accent-contrast, #ffffff);
   --frank-orange: #ff8000;
   --frank-paper: #fbfbf8;
   --frank-ink: #171717;

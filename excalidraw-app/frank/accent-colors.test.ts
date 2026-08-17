@@ -5,26 +5,34 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import {
   DEFAULT_FRANK_ACCENT,
   FRANK_ACCENT_COLORS,
+  getFrankAccentElementColor,
+  getFrankAccentPalette,
   getFrankThemeColorData,
   rethemeFrankElements,
   resolveFrankAccent,
 } from "./accent-colors";
 
 describe("Frank accent colors", () => {
-  it("defaults to International Klein Blue", () => {
+  it("defaults to one adaptive black and white accent", () => {
     expect(DEFAULT_FRANK_ACCENT).toMatchObject({
-      id: "klein",
-      color: "#002fa7",
+      id: "black-white",
+      light: { color: "#000000", ink: "#ffffff" },
+      dark: { color: "#ffffff", ink: "#000000" },
     });
+    expect(getFrankAccentPalette(DEFAULT_FRANK_ACCENT, false).color).toBe(
+      "#000000",
+    );
+    expect(getFrankAccentPalette(DEFAULT_FRANK_ACCENT, true).color).toBe(
+      "#ffffff",
+    );
     expect(resolveFrankAccent(null)).toBe(DEFAULT_FRANK_ACCENT);
     expect(resolveFrankAccent("unknown")).toBe(DEFAULT_FRANK_ACCENT);
   });
 
   it("resolves every curated accent", () => {
-    expect(FRANK_ACCENT_COLORS).toHaveLength(2);
+    expect(FRANK_ACCENT_COLORS).toHaveLength(3);
     expect(resolveFrankAccent("orange")).toMatchObject({
-      color: "#ff8000",
-      ink: "#171717",
+      light: { color: "#ff8000", ink: "#171717" },
     });
     FRANK_ACCENT_COLORS.forEach((accent) => {
       expect(resolveFrankAccent(accent.id)).toBe(accent);
@@ -71,8 +79,9 @@ describe("Frank accent colors", () => {
     ] as unknown as ExcalidrawElement[];
     const result = rethemeFrankElements({
       elements,
-      previousAccent: DEFAULT_FRANK_ACCENT,
+      previousAccent: resolveFrankAccent("klein"),
       nextAccent: resolveFrankAccent("orange"),
+      wasDark: false,
       isDark: false,
     });
 
@@ -84,5 +93,37 @@ describe("Frank accent colors", () => {
     });
     expect(result.elements[2].strokeColor).toBe("#e03131");
     expect(result.elements[3].strokeColor).toBe("#002fa7");
+  });
+
+  it("switches system-owned black to white with the editor theme", () => {
+    const elements = [
+      {
+        id: "ai-heading",
+        type: "text",
+        frameId: null,
+        strokeColor: "#000000",
+        backgroundColor: "transparent",
+        customData: getFrankThemeColorData({ strokeColor: true }),
+      },
+      {
+        id: "user-black",
+        type: "text",
+        frameId: null,
+        strokeColor: "#000000",
+        backgroundColor: "transparent",
+      },
+    ] as unknown as ExcalidrawElement[];
+    const result = rethemeFrankElements({
+      elements,
+      previousAccent: DEFAULT_FRANK_ACCENT,
+      nextAccent: DEFAULT_FRANK_ACCENT,
+      wasDark: false,
+      isDark: true,
+    });
+
+    expect(result.elements[0].strokeColor).toBe(
+      getFrankAccentElementColor(DEFAULT_FRANK_ACCENT, true),
+    );
+    expect(result.elements[1].strokeColor).toBe("#000000");
   });
 });

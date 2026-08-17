@@ -30,7 +30,7 @@ export const AppMainMenu: React.FC<{
           role="group"
           aria-label="Accent color"
         >
-          <span>Accent</span>
+          <span>Accent color</span>
           <div className="frank-accent-picker__options">
             {FRANK_ACCENT_COLORS.map((accent) => (
               <button
@@ -39,7 +39,7 @@ export const AppMainMenu: React.FC<{
                 title={accent.name}
                 aria-label={accent.name}
                 aria-pressed={props.accentId === accent.id}
-                style={{ backgroundColor: accent.color }}
+                style={{ background: accent.swatch }}
                 onClick={() => props.onAccentChange(accent.id)}
               />
             ))}

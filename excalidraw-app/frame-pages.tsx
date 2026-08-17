@@ -1,3 +1,4 @@
+import { removeDarkModeFilter } from "@excalidraw/common";
 import {
   CaptureUpdateAction,
   viewportCoordsToSceneCoords,
@@ -191,7 +192,9 @@ export const FramePages = ({
       ...position,
       ...size,
       name: `Frame ${frames.length + 1}`,
-      strokeColor: currentFrame?.strokeColor || accentColor,
+      strokeColor:
+        currentFrame?.strokeColor ||
+        (theme === "dark" ? removeDarkModeFilter(accentColor) : accentColor),
       backgroundColor: "transparent",
       fillStyle: currentFrame?.fillStyle,
       strokeWidth: currentFrame?.strokeWidth,
