@@ -47,13 +47,15 @@ const DEFAULT_CAMERA_SIZE = 0.18;
 const RECORDER_SETTINGS_KEY = "frank-canvas-recorder-settings";
 const DEFAULT_RECORDER_LAYOUT: RecorderLayout = "split";
 
-const FRAME_RECORDER_LAYOUTS: readonly {
+const RECORDER_MODES: readonly {
+  scope: RecorderScope;
   value: RecorderLayout;
   label: string;
 }[] = [
-  { value: "full-camera", label: "Full camera" },
-  { value: "split", label: "Camera + canvas" },
-  { value: "canvas-pip", label: "Canvas + PIP" },
+  { scope: "frame", value: "full-camera", label: "Full camera" },
+  { scope: "frame", value: "split", label: "Split" },
+  { scope: "frame", value: "canvas-pip", label: "Frame PIP" },
+  { scope: "canvas", value: "canvas-pip", label: "Canvas PIP" },
 ];
 
 const CAMERA_POSITIONS = {
@@ -477,12 +479,10 @@ export const FrameRecorder = ({
     updateRecordingOverlay(excalidrawAPI.getAppState());
   };
 
-  const setRecorderScope = (scope: RecorderScope) => {
+  const setRecorderMode = (scope: RecorderScope, layout: RecorderLayout) => {
     if (statusRef.current === "recording" || statusRef.current === "paused") {
       return;
     }
-    const layout: RecorderLayout =
-      scope === "canvas" ? "canvas-pip" : layoutRef.current;
     scopeRef.current = scope;
     layoutRef.current = layout;
     frameCanvasRef.current = null;
@@ -497,17 +497,6 @@ export const FrameRecorder = ({
     if (isOpenRef.current && !mediaStreamRef.current) {
       void startPreview();
     }
-  };
-
-  const setRecorderLayout = (layout: RecorderLayout) => {
-    if (statusRef.current === "recording" || statusRef.current === "paused") {
-      return;
-    }
-    layoutRef.current = layout;
-    frameCanvasRef.current = null;
-    frameSceneSignatureRef.current = "";
-    setRecorderSettings((settings) => ({ ...settings, layout }));
-    scheduleFrameCanvasRefreshRef.current();
   };
 
   const setSplitPosition = (splitPosition: SplitPosition) => {
@@ -1198,69 +1187,41 @@ export const FrameRecorder = ({
                 {CloseIcon}
               </button>
             </div>
-            <div className="frank-recorder__setting-row">
-              <span>Record</span>
-              <div
-                className="frank-recorder__segments"
-                role="group"
-                aria-label="Choose what to record"
-              >
+            <div
+              className="frank-recorder__layouts"
+              role="group"
+              aria-label="Choose a recording mode"
+            >
+              {RECORDER_MODES.map(({ scope, value, label }) => (
                 <button
+                  key={`${scope}-${value}`}
                   type="button"
+                  data-layout={value}
+                  data-scope={scope}
+                  data-split-position={
+                    value === "split"
+                      ? recorderSettings.splitPosition
+                      : undefined
+                  }
                   disabled={settingsLocked}
-                  aria-pressed={recorderSettings.scope === "frame"}
-                  onClick={() => setRecorderScope("frame")}
+                  aria-label={label}
+                  aria-pressed={
+                    recorderSettings.scope === scope &&
+                    recorderSettings.layout === value
+                  }
+                  onClick={() => setRecorderMode(scope, value)}
                 >
-                  Frame
-                </button>
-                <button
-                  type="button"
-                  disabled={settingsLocked}
-                  aria-pressed={recorderSettings.scope === "canvas"}
-                  onClick={() => setRecorderScope("canvas")}
-                >
-                  Canvas View
-                </button>
-              </div>
-            </div>
-            {recorderSettings.scope === "frame" ? (
-              <div
-                className="frank-recorder__layouts"
-                role="group"
-                aria-label="Choose a Frame recording layout"
-              >
-                {FRAME_RECORDER_LAYOUTS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    data-layout={value}
-                    data-split-position={
-                      value === "split"
-                        ? recorderSettings.splitPosition
-                        : undefined
-                    }
-                    disabled={settingsLocked}
-                    aria-label={label}
-                    aria-pressed={recorderSettings.layout === value}
-                    onClick={() => setRecorderLayout(value)}
+                  <span
+                    className="frank-recorder__layout-icon"
+                    aria-hidden="true"
                   >
-                    <span
-                      className="frank-recorder__layout-icon"
-                      aria-hidden="true"
-                    >
-                      <i />
-                      <i />
-                    </span>
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="frank-recorder__canvas-mode">
-                <span>Canvas View</span>
-                <small>PIP camera</small>
-              </div>
-            )}
+                    <i />
+                    <i />
+                  </span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
             {recorderSettings.scope === "frame" &&
             recorderSettings.layout === "split" ? (
               <>
@@ -1442,7 +1403,9 @@ export const FrameRecorder = ({
               <canvas
                 ref={captureCanvasRef}
                 className={`frank-recorder__preview ${
-                  isOpen && hasRecordingTarget
+                  isOpen &&
+                  hasRecordingTarget &&
+                  recorderSettings.scope === "frame"
                     ? "frank-recorder__preview--visible"
                     : ""
                 }`}

@@ -913,24 +913,9 @@
       }
     }
 
-    &__canvas-mode {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      min-height: 3rem;
-      padding: 0 0.65rem;
-      border-bottom: 1px solid var(--frank-rule);
-      font-size: 0.68rem;
-
-      small {
-        color: #6b6b66;
-        font-size: 0.62rem;
-      }
-    }
-
     &__layouts {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.4rem;
       padding: 0.85rem 0;
       border-bottom: 1px solid var(--frank-rule);
@@ -1152,7 +1137,6 @@
       .frank-recorder__settings-heading,
       .frank-recorder__setting-row,
       .frank-recorder__segments button,
-      .frank-recorder__canvas-mode,
       .frank-recorder__position button,
       .frank-recorder__layouts,
       .frank-recorder__layouts button {
