@@ -857,7 +857,7 @@
         border-left: 0;
       }
 
-      small {
+      > small {
         display: block;
         margin-top: 0.7rem;
         color: #6b6b66;
@@ -881,9 +881,56 @@
       }
     }
 
+    &__setting-row {
+      display: grid;
+      grid-template-columns: 5.2rem minmax(0, 1fr);
+      gap: 0.55rem;
+      align-items: center;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--frank-rule);
+      font-size: 0.68rem;
+    }
+
+    &__segments {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+
+      button {
+        min-width: 0;
+        height: 2rem;
+        padding: 0 0.55rem;
+        border: 1px solid var(--frank-rule);
+
+        + button {
+          border-left: 0;
+        }
+
+        &[aria-pressed="true"] {
+          border-color: var(--frank-blue);
+          background: var(--frank-blue-soft);
+          color: var(--frank-blue-dark);
+        }
+      }
+    }
+
+    &__canvas-mode {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 3rem;
+      padding: 0 0.65rem;
+      border-bottom: 1px solid var(--frank-rule);
+      font-size: 0.68rem;
+
+      small {
+        color: #6b6b66;
+        font-size: 0.62rem;
+      }
+    }
+
     &__layouts {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.4rem;
       padding: 0.85rem 0;
       border-bottom: 1px solid var(--frank-rule);
@@ -942,53 +989,40 @@
       }
 
       i:last-child {
-        display: none;
+        inset: 0.35rem;
       }
     }
 
-    [data-layout="camera-canvas"] .frank-recorder__layout-icon {
+    [data-layout="split"] .frank-recorder__layout-icon {
       i:first-child {
         top: 0;
         right: 0;
         left: 0;
-        height: 55%;
+        height: 45%;
       }
 
       i:last-child {
         right: 0.25rem;
         bottom: 0.2rem;
         left: 0.25rem;
-        height: 35%;
+        height: 42%;
       }
     }
 
-    [data-layout="canvas-camera"] .frank-recorder__layout-icon {
+    [data-layout="split"][data-split-position="bottom"]
+      .frank-recorder__layout-icon {
       i:first-child {
+        top: auto;
         right: 0;
         bottom: 0;
         left: 0;
-        height: 40%;
       }
 
       i:last-child {
         top: 0.2rem;
         right: 0.25rem;
+        bottom: auto;
         left: 0.25rem;
-        height: 48%;
-      }
-    }
-
-    [data-layout="canvas-pip"] .frank-recorder__layout-icon {
-      i:first-child {
-        right: 0.15rem;
-        bottom: 0.15rem;
-        width: 0.65rem;
-        height: 0.65rem;
-        border-radius: 50%;
-      }
-
-      i:last-child {
-        inset: 0.2rem;
       }
     }
 
@@ -1102,10 +1136,19 @@
 
       .frank-recorder__status,
       .frank-recorder__settings-heading,
+      .frank-recorder__setting-row,
+      .frank-recorder__segments button,
+      .frank-recorder__canvas-mode,
       .frank-recorder__position button,
       .frank-recorder__layouts,
       .frank-recorder__layouts button {
         border-color: #343434;
+      }
+
+      .frank-recorder__segments button[aria-pressed="true"] {
+        border-color: var(--frank-blue);
+        background: #171717;
+        color: #ffffff;
       }
 
       .frank-recorder__layouts button {
@@ -1133,6 +1176,8 @@
     z-index: 18;
     display: none;
     background: #000000;
+    clip-path: inset(0);
+    contain: paint;
     pointer-events: none;
 
     &--visible {

@@ -30,30 +30,29 @@ import type { FrankSceneLifecycle } from "./frank/scene-lifecycle";
 type RecorderStatus = "idle" | "preview" | "recording" | "paused";
 type CameraPosition = { x: number; y: number };
 type ViewportRect = { x: number; y: number; width: number; height: number };
-export type RecorderLayout =
-  | "full-camera"
-  | "camera-canvas"
-  | "canvas-camera"
-  | "canvas-pip";
+export type RecorderScope = "frame" | "canvas";
+export type RecorderLayout = "full-camera" | "split" | "canvas-pip";
+type SplitPosition = "top" | "bottom";
 type RecorderSettings = {
+  scope: RecorderScope;
   layout: RecorderLayout;
   cameraSize: number;
   cameraPosition: CameraPosition;
+  splitPosition: SplitPosition;
+  splitRatio: number;
 };
 
 const MAX_RECORDING_SIDE = 1920;
 const DEFAULT_CAMERA_SIZE = 0.18;
 const RECORDER_SETTINGS_KEY = "frank-canvas-recorder-settings";
-const DEFAULT_RECORDER_LAYOUT: RecorderLayout = "canvas-pip";
+const DEFAULT_RECORDER_LAYOUT: RecorderLayout = "split";
 
-const RECORDER_LAYOUTS: readonly {
+const FRAME_RECORDER_LAYOUTS: readonly {
   value: RecorderLayout;
   label: string;
 }[] = [
   { value: "full-camera", label: "Full camera" },
-  { value: "camera-canvas", label: "Camera / canvas" },
-  { value: "canvas-camera", label: "Canvas / camera" },
-  { value: "canvas-pip", label: "Canvas + PIP" },
+  { value: "split", label: "Camera + canvas" },
 ];
 
 const CAMERA_POSITIONS = {
@@ -74,9 +73,12 @@ export const formatRecordingTime = (seconds: number) =>
 
 const readRecorderSettings = (): RecorderSettings => {
   const fallback: RecorderSettings = {
+    scope: "frame",
     layout: DEFAULT_RECORDER_LAYOUT,
     cameraSize: DEFAULT_CAMERA_SIZE,
     cameraPosition: CAMERA_POSITIONS["bottom-right"],
+    splitPosition: "top",
+    splitRatio: 0.45,
   };
   if (typeof window === "undefined") {
     return fallback;
@@ -85,10 +87,19 @@ const readRecorderSettings = (): RecorderSettings => {
     const saved = JSON.parse(
       window.localStorage.getItem(RECORDER_SETTINGS_KEY) || "null",
     );
+    const scope: RecorderScope =
+      saved?.scope === "canvas" || saved?.layout === "canvas-pip"
+        ? "canvas"
+        : "frame";
+    const layout: RecorderLayout =
+      scope === "canvas"
+        ? "canvas-pip"
+        : saved?.layout === "full-camera"
+        ? "full-camera"
+        : "split";
     return {
-      layout: RECORDER_LAYOUTS.some(({ value }) => value === saved?.layout)
-        ? saved.layout
-        : fallback.layout,
+      scope,
+      layout,
       cameraSize:
         typeof saved?.cameraSize === "number"
           ? Math.min(0.32, Math.max(0.12, saved.cameraSize))
@@ -98,6 +109,18 @@ const readRecorderSettings = (): RecorderSettings => {
         typeof saved?.cameraPosition?.y === "number"
           ? saved.cameraPosition
           : fallback.cameraPosition,
+      splitPosition:
+        saved?.splitPosition === "bottom" || saved?.layout === "canvas-camera"
+          ? "bottom"
+          : fallback.splitPosition,
+      splitRatio:
+        typeof saved?.splitRatio === "number"
+          ? Math.min(0.7, Math.max(0.3, saved.splitRatio))
+          : saved?.layout === "camera-canvas"
+          ? 0.55
+          : saved?.layout === "canvas-camera"
+          ? 0.4
+          : fallback.splitRatio,
     };
   } catch {
     return fallback;
@@ -137,25 +160,38 @@ export const getRecordingLayoutRects = (
   height: number,
   cameraPosition: CameraPosition,
   cameraSize: number,
+  splitPosition: SplitPosition = "top",
+  splitRatio = 0.45,
 ) => {
   const full = { x: 0, y: 0, width, height };
   if (layout === "full-camera") {
-    return { canvas: null, camera: full, cameraShape: "rectangle" } as const;
-  }
-  if (layout === "camera-canvas") {
-    const cameraHeight = (height * 55) / 100;
     return {
-      canvas: { x: 0, y: cameraHeight, width, height: height - cameraHeight },
-      camera: { x: 0, y: 0, width, height: cameraHeight },
+      canvas: full,
+      camera: full,
       cameraShape: "rectangle",
+      canvasLayer: "above",
     } as const;
   }
-  if (layout === "canvas-camera") {
-    const canvasHeight = (height * 60) / 100;
+  if (layout === "split") {
+    const cameraHeight = Math.round(
+      height * Math.min(0.7, Math.max(0.3, splitRatio)),
+    );
+    const cameraIsAbove = splitPosition === "top";
     return {
-      canvas: { x: 0, y: 0, width, height: canvasHeight },
-      camera: { x: 0, y: canvasHeight, width, height: height - canvasHeight },
+      canvas: {
+        x: 0,
+        y: cameraIsAbove ? cameraHeight : 0,
+        width,
+        height: height - cameraHeight,
+      },
+      camera: {
+        x: 0,
+        y: cameraIsAbove ? 0 : height - cameraHeight,
+        width,
+        height: cameraHeight,
+      },
       cameraShape: "rectangle",
+      canvasLayer: "below",
     } as const;
   }
   const diameter = Math.min(width, height) * cameraSize;
@@ -168,8 +204,16 @@ export const getRecordingLayoutRects = (
       height: diameter,
     },
     cameraShape: "circle",
+    canvasLayer: "below",
   } as const;
 };
+
+export const getClipInsets = (child: ViewportRect, bounds: ViewportRect) => ({
+  top: Math.max(0, bounds.y - child.y),
+  right: Math.max(0, child.x + child.width - (bounds.x + bounds.width)),
+  bottom: Math.max(0, child.y + child.height - (bounds.y + bounds.height)),
+  left: Math.max(0, bounds.x - child.x),
+});
 
 export const getFrameSceneSignature = (
   elements: readonly ExcalidrawElement[],
@@ -232,6 +276,13 @@ const getFrameViewportRect = (
     height: bottomRight.y - topLeft.y,
   };
 };
+
+const getCanvasViewportRect = (appState: AppState): ViewportRect => ({
+  x: appState.offsetLeft,
+  y: appState.offsetTop,
+  width: appState.width,
+  height: appState.height,
+});
 
 const fitInside = (
   sourceWidth: number,
@@ -325,7 +376,12 @@ export const FrameRecorder = ({
     recorderSettings.cameraPosition,
   );
   const cameraSizeRef = useRef(recorderSettings.cameraSize);
+  const scopeRef = useRef<RecorderScope>(recorderSettings.scope);
   const layoutRef = useRef<RecorderLayout>(recorderSettings.layout);
+  const splitPositionRef = useRef<SplitPosition>(
+    recorderSettings.splitPosition,
+  );
+  const splitRatioRef = useRef(recorderSettings.splitRatio);
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordedSecondsRef = useRef(0);
   const recordingDimensionsRef = useRef<{
@@ -356,13 +412,30 @@ export const FrameRecorder = ({
     return element && isFrameElement(element) ? element : null;
   };
 
-  const resizeCaptureCanvas = (frame: NonDeleted<ExcalidrawFrameElement>) => {
+  const getRecordingSourceDimensions = () => {
+    if (scopeRef.current === "canvas") {
+      const appState = excalidrawAPI.getAppState();
+      return { width: appState.width, height: appState.height };
+    }
+    const frame = getCurrentFrame();
+    return frame ? { width: frame.width, height: frame.height } : null;
+  };
+
+  const getRecordingViewportRect = (appState: AppState) => {
+    if (scopeRef.current === "canvas") {
+      return getCanvasViewportRect(appState);
+    }
+    const frame = getCurrentFrame();
+    return frame ? getFrameViewportRect(frame, appState) : null;
+  };
+
+  const resizeCaptureCanvas = (source: { width: number; height: number }) => {
     const captureCanvas = captureCanvasRef.current;
     if (!captureCanvas) {
       return null;
     }
     const dimensions =
-      recordingDimensionsRef.current || getRecordingDimensions(frame);
+      recordingDimensionsRef.current || getRecordingDimensions(source);
     if (
       captureCanvas.width !== dimensions.width ||
       captureCanvas.height !== dimensions.height
@@ -395,37 +468,69 @@ export const FrameRecorder = ({
       ...settings,
       cameraPosition: position,
     }));
-    const frame = getCurrentFrame();
-    if (frame) {
-      updateCameraOverlay(frame, excalidrawAPI.getAppState());
-    }
+    updateRecordingOverlay(excalidrawAPI.getAppState());
   };
 
   const setCameraSize = (cameraSize: number) => {
     cameraSizeRef.current = cameraSize;
     setRecorderSettings((settings) => ({ ...settings, cameraSize }));
-    const frame = getCurrentFrame();
-    if (frame) {
-      updateCameraOverlay(frame, excalidrawAPI.getAppState());
+    updateRecordingOverlay(excalidrawAPI.getAppState());
+  };
+
+  const setRecorderScope = (scope: RecorderScope) => {
+    if (statusRef.current === "recording" || statusRef.current === "paused") {
+      return;
+    }
+    const layout: RecorderLayout = scope === "canvas" ? "canvas-pip" : "split";
+    scopeRef.current = scope;
+    layoutRef.current = layout;
+    frameCanvasRef.current = null;
+    frameSceneSignatureRef.current = "";
+    setRecorderSettings((settings) => ({ ...settings, scope, layout }));
+    const source = getRecordingSourceDimensions();
+    if (source) {
+      resizeCaptureCanvas(source);
+    }
+    updateRecordingOverlay(excalidrawAPI.getAppState());
+    scheduleFrameCanvasRefreshRef.current();
+    if (isOpenRef.current && !mediaStreamRef.current) {
+      void startPreview();
     }
   };
 
   const setRecorderLayout = (layout: RecorderLayout) => {
+    if (statusRef.current === "recording" || statusRef.current === "paused") {
+      return;
+    }
     layoutRef.current = layout;
+    frameCanvasRef.current = null;
+    frameSceneSignatureRef.current = "";
     setRecorderSettings((settings) => ({ ...settings, layout }));
+    scheduleFrameCanvasRefreshRef.current();
   };
 
-  const updateCameraOverlay = (
-    frame: NonDeleted<ExcalidrawFrameElement>,
-    appState: AppState,
-  ) => {
-    const rect = getFrameViewportRect(frame, appState);
+  const setSplitPosition = (splitPosition: SplitPosition) => {
+    splitPositionRef.current = splitPosition;
+    setRecorderSettings((settings) => ({ ...settings, splitPosition }));
+  };
+
+  const setSplitRatio = (splitRatio: number) => {
+    splitRatioRef.current = splitRatio;
+    setRecorderSettings((settings) => ({ ...settings, splitRatio }));
+  };
+
+  const updateRecordingOverlay = (appState: AppState) => {
+    const rect = getRecordingViewportRect(appState);
+    if (!rect) {
+      return;
+    }
     const preview = captureCanvasRef.current;
     if (preview) {
       preview.style.left = `${rect.x}px`;
       preview.style.top = `${rect.y}px`;
       preview.style.width = `${rect.width}px`;
       preview.style.height = `${rect.height}px`;
+      preview.style.clipPath = "inset(0)";
     }
     const camera = cameraRef.current;
     if (!camera || layoutRef.current !== "canvas-pip") {
@@ -441,29 +546,52 @@ export const FrameRecorder = ({
       rect,
       size,
     );
-    camera.style.width = `${size}px`;
-    camera.style.height = `${size}px`;
-    camera.style.left = `${
-      rect.x + rect.width * cameraPositionRef.current.x - size / 2
-    }px`;
-    camera.style.top = `${
-      rect.y + rect.height * cameraPositionRef.current.y - size / 2
-    }px`;
+    const cameraRect = {
+      x: rect.x + rect.width * cameraPositionRef.current.x - size / 2,
+      y: rect.y + rect.height * cameraPositionRef.current.y - size / 2,
+      width: size,
+      height: size,
+    };
+    const clip = getClipInsets(cameraRect, rect);
+    camera.style.width = `${cameraRect.width}px`;
+    camera.style.height = `${cameraRect.height}px`;
+    camera.style.left = `${cameraRect.x}px`;
+    camera.style.top = `${cameraRect.y}px`;
+    camera.style.clipPath = `inset(${clip.top}px ${clip.right}px ${clip.bottom}px ${clip.left}px round 50%)`;
   };
 
   const refreshFrameCanvas = async () => {
-    const frame = getCurrentFrame();
-    if (!frame || excalidrawAPI.isDestroyed) {
+    if (excalidrawAPI.isDestroyed) {
       return false;
     }
     const exportId = ++frameExportIdRef.current;
     const appState = excalidrawAPI.getAppState();
+    if (scopeRef.current === "canvas") {
+      const viewportCanvas = document.querySelector<HTMLCanvasElement>(
+        ".excalidraw-app .excalidraw__canvas.static",
+      );
+      if (!viewportCanvas) {
+        excalidrawAPI.setToast({
+          message: "The visible canvas could not be prepared for recording.",
+        });
+        return false;
+      }
+      frameCanvasRef.current = viewportCanvas;
+      frameSceneSignatureRef.current = "canvas-viewport";
+      frameAppearanceRef.current = `${appState.theme}:${appState.viewBackgroundColor}`;
+      return true;
+    }
+
+    const frame = getCurrentFrame();
+    if (!frame) {
+      return false;
+    }
     try {
       const frameCanvas = await exportToCanvas({
         elements: excalidrawAPI.getSceneElements(),
         appState: {
           ...appState,
-          exportBackground: true,
+          exportBackground: layoutRef.current !== "full-camera",
           exportScale: 1,
           exportWithDarkMode: appState.theme === "dark",
         },
@@ -506,17 +634,14 @@ export const FrameRecorder = ({
   scheduleFrameCanvasRefreshRef.current = scheduleFrameCanvasRefresh;
 
   const drawRecordingFrame = () => {
-    const frame = getCurrentFrame();
-    if (frame) {
-      updateCameraOverlay(frame, excalidrawAPI.getAppState());
-    }
+    const appState = excalidrawAPI.getAppState();
+    updateRecordingOverlay(appState);
     const captureCanvas = captureCanvasRef.current;
     const sourceCanvas = frameCanvasRef.current;
-    if (!frame || !captureCanvas || !sourceCanvas) {
+    if (!captureCanvas || !sourceCanvas) {
       return;
     }
 
-    const appState = excalidrawAPI.getAppState();
     const context = captureCanvas.getContext("2d");
     if (!context || sourceCanvas.width <= 0 || sourceCanvas.height <= 0) {
       return;
@@ -531,8 +656,11 @@ export const FrameRecorder = ({
       captureCanvas.height,
       cameraPositionRef.current,
       cameraSizeRef.current,
+      splitPositionRef.current,
+      splitRatioRef.current,
     );
-    if (layout.canvas) {
+
+    const drawCanvas = () => {
       const canvasDestination = fitInside(
         sourceCanvas.width,
         sourceCanvas.height,
@@ -550,10 +678,13 @@ export const FrameRecorder = ({
         canvasDestination.width,
         canvasDestination.height,
       );
-    }
+    };
 
     const video = videoRef.current;
-    if (video?.videoWidth) {
+    const drawCamera = () => {
+      if (!video?.videoWidth) {
+        return;
+      }
       context.save();
       if (layout.cameraShape === "circle") {
         context.beginPath();
@@ -582,6 +713,14 @@ export const FrameRecorder = ({
         );
         context.stroke();
       }
+    };
+
+    if (layout.canvasLayer === "above") {
+      drawCamera();
+      drawCanvas();
+    } else {
+      drawCanvas();
+      drawCamera();
     }
   };
 
@@ -604,9 +743,9 @@ export const FrameRecorder = ({
   };
 
   const startPreview = async () => {
-    const frame = getCurrentFrame();
-    if (!frame) {
-      excalidrawAPI.setToast({ message: "Create or select a frame first." });
+    const source = getRecordingSourceDimensions();
+    if (!source) {
+      excalidrawAPI.setToast({ message: "Create or select a Frame first." });
       return null;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -624,7 +763,7 @@ export const FrameRecorder = ({
     if (!(await refreshFrameCanvas())) {
       return null;
     }
-    if (!resizeCaptureCanvas(frame)) {
+    if (!resizeCaptureCanvas(source)) {
       return null;
     }
     drawRecordingFrame();
@@ -643,7 +782,7 @@ export const FrameRecorder = ({
         if (
           requestId !== previewRequestIdRef.current ||
           !isOpenRef.current ||
-          !getCurrentFrame()
+          !getRecordingSourceDimensions()
         ) {
           stream.getTracks().forEach((track) => track.stop());
           return null;
@@ -682,24 +821,24 @@ export const FrameRecorder = ({
     if (recordingStartPendingRef.current || recorderRef.current) {
       return;
     }
-    const frame = getCurrentFrame();
-    if (!frame || typeof MediaRecorder === "undefined") {
+    const source = getRecordingSourceDimensions();
+    if (!source || typeof MediaRecorder === "undefined") {
       excalidrawAPI.setToast({ message: "Recording is unavailable here." });
       return;
     }
     recordingStartPendingRef.current = true;
     try {
       const mediaStream = await startPreview();
-      const recordingFrame = getCurrentFrame();
-      if (!mediaStream || !recordingFrame) {
+      const recordingSource = getRecordingSourceDimensions();
+      if (!mediaStream || !recordingSource) {
         return;
       }
       if (!(await refreshFrameCanvas())) {
         return;
       }
 
-      recordingDimensionsRef.current = getRecordingDimensions(recordingFrame);
-      const captureCanvas = resizeCaptureCanvas(recordingFrame);
+      recordingDimensionsRef.current = getRecordingDimensions(recordingSource);
+      const captureCanvas = resizeCaptureCanvas(recordingSource);
       if (!captureCanvas) {
         recordingDimensionsRef.current = null;
         return;
@@ -773,9 +912,9 @@ export const FrameRecorder = ({
         recordedSecondsRef.current = 0;
         setElapsedSeconds(0);
         setStatus(mediaStreamRef.current ? "preview" : "idle");
-        const currentFrame = getCurrentFrame();
-        if (currentFrame) {
-          resizeCaptureCanvas(currentFrame);
+        const currentSource = getRecordingSourceDimensions();
+        if (currentSource) {
+          resizeCaptureCanvas(currentSource);
         }
       };
       recordedSecondsRef.current = 0;
@@ -852,25 +991,33 @@ export const FrameRecorder = ({
 
   const openRecorder = () => {
     const nextFrames = refreshFrames();
-    if (!nextFrames.length) {
-      excalidrawAPI.setToast({ message: "Create a frame before recording." });
-      return;
-    }
     isOpenRef.current = true;
     onOpen();
+    if (scopeRef.current === "frame" && !nextFrames.length) {
+      setShowSettings(true);
+      excalidrawAPI.setToast({
+        message: "Create a Frame or choose Canvas View.",
+      });
+      return;
+    }
     const targetFrame =
       nextFrames.find((frame) => frame.id === currentFrameIdRef.current) ||
       nextFrames[0];
     frameCanvasRef.current = null;
     frameSceneSignatureRef.current = "";
     frameAppearanceRef.current = "";
-    resizeCaptureCanvas(targetFrame);
-    excalidrawAPI.setViewport({
-      target: [targetFrame],
-      fit: "scale-down",
-      animation: true,
-      offsets: { ui: true },
-    });
+    const source = getRecordingSourceDimensions();
+    if (source) {
+      resizeCaptureCanvas(source);
+    }
+    if (scopeRef.current === "frame" && targetFrame) {
+      excalidrawAPI.setViewport({
+        target: [targetFrame],
+        fit: "scale-down",
+        animation: true,
+        offsets: { ui: true },
+      });
+    }
     startRenderLoop();
     void startPreview();
   };
@@ -882,11 +1029,10 @@ export const FrameRecorder = ({
     ) {
       return;
     }
-    const frame = getCurrentFrame();
-    if (!frame) {
+    const rect = getRecordingViewportRect(excalidrawAPI.getAppState());
+    if (!rect) {
       return;
     }
-    const rect = getFrameViewportRect(frame, excalidrawAPI.getAppState());
     const diameter = cameraRef.current?.getBoundingClientRect().width || 72;
     cameraPositionRef.current = clampCameraPosition(
       {
@@ -896,7 +1042,7 @@ export const FrameRecorder = ({
       rect,
       diameter,
     );
-    updateCameraOverlay(frame, excalidrawAPI.getAppState());
+    updateRecordingOverlay(excalidrawAPI.getAppState());
   };
 
   const saveDraggedCameraPosition = () => {
@@ -920,17 +1066,20 @@ export const FrameRecorder = ({
       );
       let currentFrameId = currentFrameIdRef.current;
       if (currentFrameId && !snapshot.activeElementIds.has(currentFrameId)) {
-        const hadActiveMedia =
-          statusRef.current !== "idle" || previewPromiseRef.current !== null;
-        stopPreviewRef.current();
-        if (hadActiveMedia) {
-          excalidrawAPI.setToast({
-            message: "Recording stopped because the current frame was removed.",
-          });
+        if (scopeRef.current === "frame") {
+          const hadActiveMedia =
+            statusRef.current !== "idle" || previewPromiseRef.current !== null;
+          stopPreviewRef.current();
+          if (hadActiveMedia) {
+            excalidrawAPI.setToast({
+              message:
+                "Recording stopped because the current Frame was removed.",
+            });
+          }
         }
         currentFrameIdRef.current = nextFrames[0]?.id || null;
         currentFrameId = currentFrameIdRef.current;
-        if (!nextFrames.length) {
+        if (scopeRef.current === "frame" && !nextFrames.length) {
           onCloseRef.current();
         }
       }
@@ -945,14 +1094,20 @@ export const FrameRecorder = ({
       if (selectedFrame && selectedFrame.id !== currentFrameId) {
         currentFrameIdRef.current = selectedFrame.id;
         currentFrameId = selectedFrame.id;
-        frameCanvasRef.current = null;
-        frameSceneSignatureRef.current = "";
-        frameAppearanceRef.current = "";
-        resizeCaptureCanvas(selectedFrame);
-        scheduleFrameCanvasRefreshRef.current();
+        if (scopeRef.current === "frame") {
+          frameCanvasRef.current = null;
+          frameSceneSignatureRef.current = "";
+          frameAppearanceRef.current = "";
+          resizeCaptureCanvas(selectedFrame);
+          scheduleFrameCanvasRefreshRef.current();
+        }
       }
 
-      if (currentFrameId && snapshot.activeElementIds.has(currentFrameId)) {
+      if (
+        scopeRef.current === "frame" &&
+        currentFrameId &&
+        snapshot.activeElementIds.has(currentFrameId)
+      ) {
         const nextSignature = getFrameSceneSignature(
           snapshot.elements,
           currentFrameId,
@@ -1020,16 +1175,20 @@ export const FrameRecorder = ({
     };
   }, []);
 
+  const settingsLocked = status === "recording" || status === "paused";
+  const hasRecordingTarget =
+    recorderSettings.scope === "canvas" || frames.length > 0;
+
   return (
     <>
       <div className={`frank-recorder frank-recorder--${theme}`}>
         {isOpen && showSettings ? (
           <div
             className="frank-recorder__settings"
-            aria-label="Recording layout"
+            aria-label="Recording settings"
           >
             <div className="frank-recorder__settings-heading">
-              <strong>Recording layout</strong>
+              <strong>Recording</strong>
               <button
                 type="button"
                 aria-label="Close recording settings"
@@ -1038,31 +1197,116 @@ export const FrameRecorder = ({
                 {CloseIcon}
               </button>
             </div>
-            <div
-              className="frank-recorder__layouts"
-              role="group"
-              aria-label="Choose a recording layout"
-            >
-              {RECORDER_LAYOUTS.map(({ value, label }) => (
+            <div className="frank-recorder__setting-row">
+              <span>Record</span>
+              <div
+                className="frank-recorder__segments"
+                role="group"
+                aria-label="Choose what to record"
+              >
                 <button
-                  key={value}
                   type="button"
-                  data-layout={value}
-                  aria-label={label}
-                  aria-pressed={recorderSettings.layout === value}
-                  onClick={() => setRecorderLayout(value)}
+                  disabled={settingsLocked}
+                  aria-pressed={recorderSettings.scope === "frame"}
+                  onClick={() => setRecorderScope("frame")}
                 >
-                  <span
-                    className="frank-recorder__layout-icon"
-                    aria-hidden="true"
-                  >
-                    <i />
-                    <i />
-                  </span>
-                  <span>{label}</span>
+                  Frame
                 </button>
-              ))}
+                <button
+                  type="button"
+                  disabled={settingsLocked}
+                  aria-pressed={recorderSettings.scope === "canvas"}
+                  onClick={() => setRecorderScope("canvas")}
+                >
+                  Canvas View
+                </button>
+              </div>
             </div>
+            {recorderSettings.scope === "frame" ? (
+              <div
+                className="frank-recorder__layouts"
+                role="group"
+                aria-label="Choose a Frame recording layout"
+              >
+                {FRAME_RECORDER_LAYOUTS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    data-layout={value}
+                    data-split-position={
+                      value === "split"
+                        ? recorderSettings.splitPosition
+                        : undefined
+                    }
+                    disabled={settingsLocked}
+                    aria-label={label}
+                    aria-pressed={recorderSettings.layout === value}
+                    onClick={() => setRecorderLayout(value)}
+                  >
+                    <span
+                      className="frank-recorder__layout-icon"
+                      aria-hidden="true"
+                    >
+                      <i />
+                      <i />
+                    </span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="frank-recorder__canvas-mode">
+                <span>Canvas View</span>
+                <small>PIP camera</small>
+              </div>
+            )}
+            {recorderSettings.scope === "frame" &&
+            recorderSettings.layout === "split" ? (
+              <>
+                <div className="frank-recorder__setting-row">
+                  <span>Camera</span>
+                  <div
+                    className="frank-recorder__segments"
+                    role="group"
+                    aria-label="Camera split position"
+                  >
+                    <button
+                      type="button"
+                      disabled={settingsLocked}
+                      aria-pressed={recorderSettings.splitPosition === "top"}
+                      onClick={() => setSplitPosition("top")}
+                    >
+                      Top
+                    </button>
+                    <button
+                      type="button"
+                      disabled={settingsLocked}
+                      aria-pressed={recorderSettings.splitPosition === "bottom"}
+                      onClick={() => setSplitPosition("bottom")}
+                    >
+                      Bottom
+                    </button>
+                  </div>
+                </div>
+                <label className="frank-recorder__size">
+                  <span>Camera area</span>
+                  <input
+                    type="range"
+                    min="30"
+                    max="70"
+                    step="5"
+                    disabled={settingsLocked}
+                    value={Math.round(recorderSettings.splitRatio * 100)}
+                    onChange={(event) =>
+                      setSplitRatio(Number(event.target.value) / 100)
+                    }
+                  />
+                  <output>
+                    {Math.round(recorderSettings.splitRatio * 100)}%
+                  </output>
+                </label>
+              </>
+            ) : null}
             {recorderSettings.layout === "canvas-pip" ? (
               <>
                 <label className="frank-recorder__size">
@@ -1072,6 +1316,7 @@ export const FrameRecorder = ({
                     min="12"
                     max="32"
                     step="1"
+                    disabled={settingsLocked}
                     value={Math.round(recorderSettings.cameraSize * 100)}
                     onChange={(event) =>
                       setCameraSize(Number(event.target.value) / 100)
@@ -1099,6 +1344,7 @@ export const FrameRecorder = ({
                         <button
                           key={name}
                           type="button"
+                          disabled={settingsLocked}
                           data-position={name}
                           aria-label={name.replace("-", " ")}
                           aria-pressed={isSelected}
@@ -1113,9 +1359,11 @@ export const FrameRecorder = ({
               </>
             ) : null}
             <small>
-              {recorderSettings.layout === "canvas-pip"
+              {recorderSettings.scope === "canvas"
                 ? "Drag the camera directly for a custom position."
-                : "Frame content fits automatically inside the canvas area."}
+                : recorderSettings.layout === "full-camera"
+                ? "Frame content stays above the camera video."
+                : "Frame content fits inside the canvas section."}
             </small>
           </div>
         ) : null}
@@ -1123,7 +1371,7 @@ export const FrameRecorder = ({
           <div
             className="frank-recorder__toolbar"
             role="toolbar"
-            aria-label="Frame recorder"
+            aria-label="Recorder"
           >
             {status === "recording" || status === "paused" ? (
               <span
@@ -1135,7 +1383,8 @@ export const FrameRecorder = ({
                 <time>{formatRecordingTime(elapsedSeconds)}</time>
               </span>
             ) : null}
-            {frames.length && (status === "idle" || status === "preview") ? (
+            {hasRecordingTarget &&
+            (status === "idle" || status === "preview") ? (
               <button
                 className="frank-recorder__record"
                 type="button"
@@ -1154,17 +1403,15 @@ export const FrameRecorder = ({
                 </button>
               </>
             ) : null}
-            {frames.length ? (
-              <button
-                type="button"
-                aria-label="Recording layout settings"
-                aria-expanded={showSettings}
-                aria-pressed={showSettings}
-                onClick={() => setShowSettings((isVisible) => !isVisible)}
-              >
-                {settingsIcon}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              aria-label="Recording settings"
+              aria-expanded={showSettings}
+              aria-pressed={showSettings}
+              onClick={() => setShowSettings((isVisible) => !isVisible)}
+            >
+              {settingsIcon}
+            </button>
             <button
               type="button"
               aria-label="Close recorder"
@@ -1194,7 +1441,7 @@ export const FrameRecorder = ({
               <canvas
                 ref={captureCanvasRef}
                 className={`frank-recorder__preview ${
-                  isOpen && frames.length
+                  isOpen && hasRecordingTarget
                     ? "frank-recorder__preview--visible"
                     : ""
                 }`}
@@ -1204,7 +1451,8 @@ export const FrameRecorder = ({
                 ref={cameraRef}
                 className={`frank-recorder__camera ${
                   isOpen &&
-                  frames.length &&
+                  hasRecordingTarget &&
+                  recorderSettings.scope === "canvas" &&
                   recorderSettings.layout === "canvas-pip"
                     ? "frank-recorder__camera--visible"
                     : ""

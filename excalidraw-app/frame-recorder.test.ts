@@ -8,6 +8,7 @@ import type {
 import {
   clampCameraPosition,
   formatRecordingTime,
+  getClipInsets,
   getFrameSceneSignature,
   getRecorderMimeType,
   getRecordingDownloadMetadata,
@@ -80,29 +81,32 @@ describe("frame recorder", () => {
     expect(getRecordingDownloadMetadata("video/webm").extension).toBe("webm");
   });
 
-  it("maps all four recording layouts into stable canvas regions", () => {
+  it("maps the recording layouts into stable canvas regions", () => {
     const position = { x: 0.8, y: 0.8 };
 
     expect(
       getRecordingLayoutRects("full-camera", 100, 200, position, 0.2),
     ).toEqual({
-      canvas: null,
+      canvas: { x: 0, y: 0, width: 100, height: 200 },
       camera: { x: 0, y: 0, width: 100, height: 200 },
       cameraShape: "rectangle",
+      canvasLayer: "above",
     });
     expect(
-      getRecordingLayoutRects("camera-canvas", 100, 200, position, 0.2),
+      getRecordingLayoutRects("split", 100, 200, position, 0.2, "top", 0.55),
     ).toEqual({
       canvas: { x: 0, y: 110, width: 100, height: 90 },
       camera: { x: 0, y: 0, width: 100, height: 110 },
       cameraShape: "rectangle",
+      canvasLayer: "below",
     });
     expect(
-      getRecordingLayoutRects("canvas-camera", 100, 200, position, 0.2),
+      getRecordingLayoutRects("split", 100, 200, position, 0.2, "bottom", 0.4),
     ).toEqual({
       canvas: { x: 0, y: 0, width: 100, height: 120 },
       camera: { x: 0, y: 120, width: 100, height: 80 },
       cameraShape: "rectangle",
+      canvasLayer: "below",
     });
     expect(
       getRecordingLayoutRects("canvas-pip", 100, 200, position, 0.2),
@@ -110,7 +114,17 @@ describe("frame recorder", () => {
       canvas: { x: 0, y: 0, width: 100, height: 200 },
       camera: { x: 70, y: 150, width: 20, height: 20 },
       cameraShape: "circle",
+      canvasLayer: "below",
     });
+  });
+
+  it("clips an HTML camera preview at its recording boundary", () => {
+    expect(
+      getClipInsets(
+        { x: 80, y: 90, width: 40, height: 40 },
+        { x: 100, y: 100, width: 200, height: 200 },
+      ),
+    ).toEqual({ top: 10, right: 0, bottom: 0, left: 20 });
   });
 
   it("keeps the camera circle inside the current frame", () => {
