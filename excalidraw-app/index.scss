@@ -106,6 +106,7 @@
   --frank-ink: #171717;
   --frank-rule: #d8d8d2;
   --frank-white: #ffffff;
+  --frank-control-radius: 0.25rem;
 
   .frank-dock {
     position: absolute;
@@ -119,7 +120,7 @@
     width: min(22rem, calc(100% - 18rem));
     border: 1px solid var(--frank-rule);
     border-top: 2px solid var(--frank-blue);
-    border-radius: 0.1rem;
+    border-radius: var(--frank-control-radius);
     background: var(--frank-white);
     box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     transform: translateX(-50%);
@@ -161,6 +162,14 @@
         outline: 1px solid var(--frank-blue);
         outline-offset: -3px;
       }
+    }
+
+    > .frank-ai .frank-dock__trigger {
+      border-bottom-left-radius: var(--frank-control-radius);
+    }
+
+    > .frank-recorder .frank-dock__trigger {
+      border-bottom-right-radius: var(--frank-control-radius);
     }
 
     &--dark {
@@ -212,7 +221,7 @@
       width: min(48rem, calc(100vw - 18rem));
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
-      border-radius: 0.2rem;
+      border-radius: var(--frank-control-radius);
       background: var(--frank-paper);
       color: var(--frank-ink);
       box-shadow: 0 8px 24px rgba(18, 18, 18, 0.12);
@@ -326,7 +335,7 @@
         min-height: 1.65rem;
         padding: 0 0.45rem;
         border: 1px solid var(--frank-rule);
-        border-radius: 0.2rem;
+        border-radius: var(--frank-control-radius);
         background: transparent;
         color: inherit;
         font: 500 0.64rem/1 Helvetica, Arial, sans-serif;
@@ -622,7 +631,7 @@
     overflow: visible;
     border: 1px solid var(--frank-rule);
     border-top: 2px solid var(--frank-blue);
-    border-radius: 0.1rem;
+    border-radius: var(--frank-control-radius);
     background: var(--frank-white);
     box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     color: var(--frank-ink);
@@ -718,7 +727,7 @@
       overflow: hidden;
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
-      border-radius: 0.2rem;
+      border-radius: var(--frank-control-radius);
       background: var(--frank-paper);
       box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
 
@@ -927,7 +936,7 @@
       overflow: hidden;
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
-      border-radius: 0.2rem;
+      border-radius: var(--frank-control-radius);
       background: var(--frank-paper);
       box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
       white-space: nowrap;
@@ -996,7 +1005,7 @@
       padding: 0.85rem;
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
-      border-radius: 0.2rem;
+      border-radius: var(--frank-control-radius);
       background: var(--frank-paper);
       box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
       pointer-events: auto;
@@ -1510,7 +1519,7 @@
         height: 1.25rem;
         padding: 0;
         border: 1px solid rgba(23, 23, 23, 0.18);
-        border-radius: 0.2rem;
+        border-radius: var(--frank-control-radius);
         cursor: pointer;
 
         &[aria-pressed="true"] {
@@ -1539,6 +1548,7 @@
       background: var(--frank-white);
       border-color: var(--frank-rule);
       border-top-color: var(--frank-blue);
+      border-radius: var(--frank-control-radius);
       box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     }
 
@@ -1546,7 +1556,7 @@
       background: var(--frank-white);
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
-      border-radius: 0.1rem;
+      border-radius: var(--frank-control-radius);
       box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     }
 
@@ -1902,6 +1912,7 @@
   --frank-ink: #171717;
   --frank-rule: #d8d8d2;
   --frank-white: #ffffff;
+  --frank-control-radius: 0.25rem;
 
   .Modal__background {
     background: rgba(18, 18, 18, 0.16);
@@ -1910,7 +1921,7 @@
   .Modal__content {
     border: 1px solid var(--frank-rule);
     border-top: 3px solid var(--frank-blue);
-    border-radius: 0.2rem;
+    border-radius: var(--frank-control-radius);
     background: var(--frank-paper);
     box-shadow: 0 10px 30px rgba(18, 18, 18, 0.14);
   }
