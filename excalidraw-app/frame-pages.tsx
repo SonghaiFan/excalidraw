@@ -266,7 +266,10 @@ export const FramePages = ({
   }, [excalidrawAPI, frames, selectedFrameId]);
 
   return (
-    <nav className={`frank-pages frank-pages--${theme}`} aria-label="Frames">
+    <nav
+      className={`Island frank-pages frank-pages--${theme}`}
+      aria-label="Frames"
+    >
       <div className="frank-pages__heading">
         <span>Frames</span>
         <output aria-live="polite">{frames.length}</output>
@@ -306,7 +309,7 @@ export const FramePages = ({
       </button>
       {showSizes ? (
         <div
-          className="frank-pages__sizes"
+          className="Island frank-pages__sizes"
           role="group"
           aria-label="Frame size"
         >

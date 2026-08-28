@@ -813,7 +813,7 @@ const AICanvasPrompt = ({
     <div className={`frank-ai frank-ai--${theme}`}>
       {isOpen ? (
         <div
-          className="frank-ai__panel"
+          className="Island frank-ai__panel"
           role="dialog"
           aria-label="Frank AI"
           onKeyDown={(event) => {
@@ -826,19 +826,29 @@ const AICanvasPrompt = ({
           <div className="frank-ai__mode" role="group" aria-label="AI mode">
             <button
               type="button"
+              className={`ToolIcon ToolIcon_type_toggle ${
+                intent === "ask" ? "ToolIcon--checked" : ""
+              }`}
               aria-pressed={intent === "ask"}
               disabled={isLoading}
               onClick={() => setIntent("ask")}
             >
-              Ask
+              <span className="ToolIcon__icon">
+                <span className="ToolIcon__label">Ask</span>
+              </span>
             </button>
             <button
               type="button"
+              className={`ToolIcon ToolIcon_type_toggle ${
+                intent === "create" ? "ToolIcon--checked" : ""
+              }`}
               aria-pressed={intent === "create"}
               disabled={isLoading}
               onClick={() => setIntent("create")}
             >
-              Create
+              <span className="ToolIcon__icon">
+                <span className="ToolIcon__label">Create</span>
+              </span>
             </button>
           </div>
           {frameContexts.length ? (
@@ -1032,14 +1042,18 @@ const AICanvasPrompt = ({
         </div>
       ) : null}
       <button
-        className="frank-ai__trigger frank-dock__trigger"
+        className={`ToolIcon ToolIcon_type_toggle frank-ai__trigger frank-dock__trigger ${
+          isOpen ? "ToolIcon--checked" : ""
+        }`}
         type="button"
         aria-label="AI"
         aria-expanded={isOpen}
         aria-pressed={isOpen}
         onClick={isOpen ? closePrompt : onOpen}
       >
-        <span>AI</span>
+        <span className="ToolIcon__icon">
+          <span className="ToolIcon__label">AI</span>
+        </span>
       </button>
     </div>
   );
@@ -1787,14 +1801,14 @@ const ExcalidrawWrapper = () => {
             },
           ]}
         />
+        {excalidrawAPI ? (
+          <CanvasToolDock
+            excalidrawAPI={excalidrawAPI}
+            theme={editorTheme}
+            accentColor={accentPalette.color}
+          />
+        ) : null}
       </Excalidraw>
-      {excalidrawAPI ? (
-        <CanvasToolDock
-          excalidrawAPI={excalidrawAPI}
-          theme={editorTheme}
-          accentColor={accentPalette.color}
-        />
-      ) : null}
     </div>
   );
 };

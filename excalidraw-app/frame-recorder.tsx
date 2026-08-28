@@ -1915,7 +1915,7 @@ export const FrameRecorder = ({
       <div className={`frank-recorder frank-recorder--${theme}`}>
         {isOpen && showSettings ? (
           <div
-            className="frank-recorder__settings"
+            className="Island frank-recorder__settings"
             aria-label="Recording settings"
           >
             <div className="frank-recorder__settings-heading">
@@ -2086,7 +2086,7 @@ export const FrameRecorder = ({
         ) : null}
         {isOpen ? (
           <div
-            className="frank-recorder__toolbar"
+            className="Island frank-recorder__toolbar"
             role="toolbar"
             aria-label="Recorder"
           >
@@ -2139,14 +2139,18 @@ export const FrameRecorder = ({
           </div>
         ) : null}
         <button
-          className="frank-recorder__trigger frank-dock__trigger"
+          className={`ToolIcon ToolIcon_type_toggle frank-recorder__trigger frank-dock__trigger ${
+            isOpen ? "ToolIcon--checked" : ""
+          }`}
           type="button"
           aria-label="Recording"
           aria-expanded={isOpen}
           aria-pressed={isOpen}
           onClick={isOpen ? closeRecorder : openRecorder}
         >
-          <span>Recording</span>
+          <span className="ToolIcon__icon">
+            <span className="ToolIcon__label">Recording</span>
+          </span>
         </button>
       </div>
       {typeof document !== "undefined"

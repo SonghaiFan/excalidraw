@@ -113,90 +113,36 @@
     z-index: 21;
     bottom: 1rem;
     left: 50%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(9.5rem, 1fr));
-    gap: 0;
+    display: flex;
+    gap: 0.25rem;
     overflow: visible;
-    width: min(22rem, calc(100% - 18rem));
-    border: 1px solid var(--frank-rule);
-    border-top: 2px solid var(--frank-blue);
-    border-radius: var(--frank-control-radius);
-    background: var(--frank-white);
-    box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
+    width: auto;
+    padding: 0.25rem;
     transform: translateX(-50%);
     pointer-events: none;
 
-    > .frank-recorder {
-      border-left: 1px solid var(--frank-rule);
-    }
-
     .frank-dock__trigger {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      min-width: 0;
-      height: 2.75rem;
+      min-width: 6.5rem;
       margin: 0;
-      padding: 0 1.1rem;
+      padding: 0;
       border: 0;
-      border-radius: 0;
       background: transparent;
-      color: var(--frank-ink);
-      box-shadow: none;
-      font: 500 0.75rem/1 var(--ui-font);
-      text-align: center;
-      cursor: pointer;
+      color: inherit;
       pointer-events: auto;
 
-      &:hover {
-        background: #f1f1ed;
+      .ToolIcon__icon {
+        width: 100%;
+        height: 2rem;
       }
 
-      &[aria-pressed="true"] {
-        background: var(--frank-blue);
-        color: var(--frank-accent-ink);
-      }
-
-      &:focus-visible {
-        outline: 1px solid var(--frank-blue);
-        outline-offset: -3px;
+      .ToolIcon__label {
+        justify-content: center;
+        margin: 0;
+        font-size: 0.75rem;
+        font-weight: 500;
       }
     }
 
-    > .frank-ai .frank-dock__trigger {
-      border-bottom-left-radius: var(--frank-control-radius);
-    }
-
-    > .frank-recorder .frank-dock__trigger {
-      border-bottom-right-radius: var(--frank-control-radius);
-    }
-
-    &--dark {
-      border-color: #343434;
-      border-top-color: var(--frank-blue);
-      background: #0a0a0a;
-      box-shadow: none;
-
-      > .frank-recorder {
-        border-left-color: #343434;
-      }
-
-      .frank-dock__trigger {
-        border: 0;
-        background: transparent;
-        color: #f5f5f5;
-
-        &:hover {
-          background: #151515;
-        }
-
-        &[aria-pressed="true"] {
-          background: var(--frank-blue);
-          color: var(--frank-accent-ink);
-        }
-      }
-    }
   }
 
   // Excalidraw anchors toasts at bottom-center by default, where Frank's dock
@@ -219,12 +165,6 @@
       left: 50%;
       overflow: hidden;
       width: min(48rem, calc(100vw - 18rem));
-      border: 1px solid var(--frank-rule);
-      border-top: 2px solid var(--frank-blue);
-      border-radius: var(--frank-control-radius);
-      background: var(--frank-white);
-      color: var(--frank-ink);
-      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
       animation: frank-ai-open 160ms ease-out;
       pointer-events: auto;
       transform: translateX(-50%);
@@ -258,42 +198,28 @@
     }
 
     &__mode {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      border-bottom: 1px solid var(--frank-rule);
+      display: flex;
+      gap: 0.25rem;
+      padding: 0.25rem;
+      border-bottom: 1px solid var(--default-border-color);
 
       button {
-        min-height: 2.4rem;
+        flex: 1;
+        min-height: 2rem;
+        margin: 0;
+        padding: 0;
         border: 0;
-        border-right: 1px solid var(--frank-rule);
-        border-bottom: 2px solid transparent;
         background: transparent;
-        color: #6b6b66;
-        font: 500 0.7rem/1 Helvetica, Arial, sans-serif;
-        cursor: pointer;
 
-        &:last-child {
-          border-right: 0;
+        .ToolIcon__icon {
+          width: 100%;
+          height: 2rem;
         }
 
-        &[aria-pressed="true"] {
-          border-bottom-color: var(--frank-blue);
-          background: var(--frank-blue);
-          color: var(--frank-accent-ink);
-        }
-
-        &:hover:not(:disabled) {
-          background: var(--frank-blue-soft);
-          color: var(--frank-ink);
-        }
-
-        &:focus-visible {
-          outline: 1px solid var(--frank-blue);
-          outline-offset: -3px;
-        }
-
-        &:disabled {
-          cursor: default;
+        .ToolIcon__label {
+          justify-content: center;
+          margin: 0;
+          font-size: 0.7rem;
         }
       }
     }
@@ -517,22 +443,6 @@
     }
 
     &--dark {
-      .frank-ai__trigger,
-      .frank-ai__panel {
-        border-color: #343434;
-        background: #0a0a0a;
-        color: #f5f5f5;
-        box-shadow: none;
-      }
-
-      .frank-ai__panel {
-        border-top-color: var(--frank-blue);
-      }
-
-      .frank-ai__trigger[aria-pressed="true"] {
-        border-top-color: var(--frank-blue);
-      }
-
       .frank-ai__composer textarea::placeholder,
       .frank-ai__controls span {
         color: #8c8c8c;
@@ -547,26 +457,6 @@
       .frank-ai__controls,
       .frank-ai__api-key-editor button {
         border-color: #343434;
-      }
-
-      .frank-ai__mode button {
-        color: #8c8c8c;
-
-        &:hover:not(:disabled):not([aria-pressed="true"]) {
-          background: #202020;
-          color: #f5f5f5;
-        }
-
-        &[aria-pressed="true"] {
-          border-bottom-color: var(--frank-blue);
-          background: var(--frank-blue);
-          color: var(--frank-accent-ink);
-        }
-      }
-
-      .frank-ai__context-list button:hover,
-      .frank-ai__context-list button:focus-visible {
-        background: #202020;
       }
 
       .frank-ai__context > span,
@@ -643,14 +533,9 @@
     width: 5rem;
     max-height: min(32rem, calc(100% - 10rem));
     overflow: visible;
-    border: 1px solid var(--frank-rule);
-    border-top: 2px solid var(--frank-blue);
-    border-radius: var(--frank-control-radius);
-    background: var(--frank-white);
-    box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
-    color: var(--frank-ink);
     font-family: Helvetica, Arial, sans-serif;
     transform: translateY(-50%);
+    pointer-events: var(--ui-pointerEvents);
 
     &__heading {
       display: flex;
@@ -739,11 +624,6 @@
       right: calc(100% + 0.55rem);
       width: 14rem;
       overflow: hidden;
-      border: 1px solid var(--frank-rule);
-      border-top: 2px solid var(--frank-blue);
-      border-radius: var(--frank-control-radius);
-      background: var(--frank-white);
-      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
 
       > button {
         display: flex;
@@ -866,12 +746,6 @@
     }
 
     &--dark {
-      border-color: #343434;
-      border-top-color: var(--frank-blue);
-      background: #0a0a0a;
-      box-shadow: none;
-      color: #f5f5f5;
-
       .frank-pages__heading,
       .frank-pages__list button,
       .frank-pages__add,
@@ -894,13 +768,6 @@
         color: var(--frank-accent-ink);
       }
 
-      .frank-pages__ratio {
-        background: #0a0a0a;
-      }
-
-      .frank-pages__sizes {
-        background: #0a0a0a;
-      }
     }
   }
 
@@ -949,11 +816,6 @@
       display: flex;
       align-items: center;
       overflow: hidden;
-      border: 1px solid var(--frank-rule);
-      border-top: 2px solid var(--frank-blue);
-      border-radius: var(--frank-control-radius);
-      background: var(--frank-white);
-      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
       white-space: nowrap;
       pointer-events: auto;
       transform: translateX(-50%);
@@ -1018,11 +880,6 @@
       z-index: 1;
       width: 22rem;
       padding: 0.85rem;
-      border: 1px solid var(--frank-rule);
-      border-top: 2px solid var(--frank-blue);
-      border-radius: var(--frank-control-radius);
-      background: var(--frank-white);
-      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
       pointer-events: auto;
 
       button {
@@ -1299,19 +1156,6 @@
     &--dark {
       color: #f5f5f5;
 
-      .frank-recorder__trigger,
-      .frank-recorder__toolbar,
-      .frank-recorder__settings {
-        border-color: #343434;
-        background: #0a0a0a;
-        box-shadow: none;
-      }
-
-      .frank-recorder__toolbar,
-      .frank-recorder__trigger[aria-pressed="true"] {
-        border-top-color: var(--frank-blue);
-      }
-
       button {
         border-color: #343434;
 
@@ -1473,7 +1317,9 @@
     --border-radius-lg: 0.25rem;
 
     .Island {
+      background: var(--frank-white);
       border: 1px solid var(--frank-rule);
+      border-top: 2px solid var(--frank-blue);
       box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     }
 
@@ -1484,11 +1330,6 @@
       --button-active-border: var(--frank-blue);
       --color-on-primary-container: var(--frank-accent-ink);
       --color-surface-primary-container: var(--frank-blue);
-
-      background: var(--frank-white);
-      border-color: var(--frank-rule);
-      border-top: 2px solid var(--frank-blue);
-      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.06);
 
       .divider {
         background-color: var(--frank-rule);
@@ -1756,6 +1597,7 @@
       .Island {
         background: var(--island-bg-color);
         border-color: #2d2d2d;
+        border-top-color: var(--frank-blue);
         box-shadow: none;
       }
 
