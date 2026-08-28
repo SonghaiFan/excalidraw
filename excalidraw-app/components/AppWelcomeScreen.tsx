@@ -1,6 +1,7 @@
 import { useI18n } from "@excalidraw/excalidraw/i18n";
 import { WelcomeScreen } from "@excalidraw/excalidraw/index";
 import React from "react";
+import frankSignature from "../assets/frank-signature.svg";
 
 export const AppWelcomeScreen: React.FC = React.memo(() => {
   const { t } = useI18n();
@@ -14,7 +15,11 @@ export const AppWelcomeScreen: React.FC = React.memo(() => {
       <WelcomeScreen.Hints.HelpHint />
       <WelcomeScreen.Center>
         <WelcomeScreen.Center.Logo>
-          <span className="frank-brand-wordmark">frank canvas</span>
+          <img
+            className="frank-brand-logo"
+            src={frankSignature}
+            alt="Frank Canvas"
+          />
         </WelcomeScreen.Center.Logo>
         <WelcomeScreen.Center.Heading>
           Think clearly.

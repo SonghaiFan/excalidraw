@@ -1598,12 +1598,10 @@
           color: inherit;
         }
 
-        .frank-brand-wordmark {
-          font-family: var(--ui-font);
-          font-size: clamp(1.65rem, 3vw, 2.35rem);
-          font-weight: 650;
-          letter-spacing: -0.055em;
-          line-height: 1;
+        .frank-brand-logo {
+          display: block;
+          width: clamp(8.5rem, 17vw, 11.5rem);
+          height: auto;
         }
       }
 
@@ -1838,6 +1836,10 @@
           .welcome-screen-menu-item__text {
             color: #ffffff;
           }
+        }
+
+        .frank-brand-logo {
+          filter: invert(1);
         }
       }
     }
