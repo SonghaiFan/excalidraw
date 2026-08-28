@@ -1,24 +1,26 @@
 import {
   Excalidraw,
-  LiveCollaborationTrigger,
-  TTDDialogTrigger,
   CaptureUpdateAction,
+  convertToExcalidrawElements,
+  getCommonBounds,
   reconcileElements,
-  useEditorInterface,
   ExcalidrawAPIProvider,
   useExcalidrawAPI,
+  viewportCoordsToSceneCoords,
 } from "@excalidraw/excalidraw";
 import { trackEvent } from "@excalidraw/excalidraw/analytics";
-import { getDefaultAppState } from "@excalidraw/excalidraw/appState";
 import {
   CommandPalette,
   DEFAULT_CATEGORIES,
 } from "@excalidraw/excalidraw/components/CommandPalette/CommandPalette";
-import { ErrorDialog } from "@excalidraw/excalidraw/components/ErrorDialog";
 import { OverwriteConfirmDialog } from "@excalidraw/excalidraw/components/OverwriteConfirm/OverwriteConfirm";
 import { openConfirmModal } from "@excalidraw/excalidraw/components/OverwriteConfirm/OverwriteConfirmState";
-import { ShareableLinkDialog } from "@excalidraw/excalidraw/components/ShareableLinkDialog";
 import Trans from "@excalidraw/excalidraw/components/Trans";
+import {
+  ArrowRightIcon,
+  CloseIcon,
+  microphoneIcon,
+} from "@excalidraw/excalidraw/components/icons";
 import {
   APP_NAME,
   EVENT,
@@ -29,24 +31,18 @@ import {
   isTestEnv,
   preventUnload,
   resolvablePromise,
-  isRunningInIframe,
-  isDevEnv,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { t } from "@excalidraw/excalidraw/i18n";
 
-import {
-  GithubIcon,
-  XBrandIcon,
-  DiscordIcon,
-  ExcalLogo,
-  usersIcon,
-  exportToPlus,
-  share,
-  youtubeIcon,
-} from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
 import {
   bumpElementVersions,
@@ -55,7 +51,6 @@ import {
 } from "@excalidraw/excalidraw/data/restore";
 import { newElementWith } from "@excalidraw/element";
 import { isInitializedImageElement } from "@excalidraw/element";
-import clsx from "clsx";
 import {
   parseLibraryTokensFromUrl,
   useHandleLibrary,
@@ -64,7 +59,9 @@ import {
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
 import type {
+  ExcalidrawFrameElement,
   FileId,
+  NonDeleted,
   NonDeletedExcalidrawElement,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
@@ -80,36 +77,40 @@ import type { ResolutionType } from "@excalidraw/common/utility-types";
 import type { ResolvablePromise } from "@excalidraw/common/utils";
 
 import CustomStats from "./CustomStats";
+import { FramePages } from "./frame-pages";
+import { FrameRecorder } from "./frame-recorder";
 import {
-  Provider,
-  useAtom,
-  useAtomValue,
-  useAtomWithInitialValue,
-  appJotaiStore,
-} from "./app-jotai";
+  clampFrameDimension,
+  FRAME_PRESETS,
+  resolveSelectedFrameIds,
+  type FramePreset,
+} from "./frank/frame-utils";
+import {
+  areFrameContextsEqual,
+  getSelectedFrameContexts,
+  MAX_AI_CONTEXT_FRAMES,
+  type AIFrameContext,
+} from "./frank/frame-context";
+import { FrankSceneLifecycle } from "./frank/scene-lifecycle";
+import {
+  DEFAULT_FRANK_ACCENT,
+  FRANK_ACCENT_STORAGE_KEY,
+  getFrankAccentPalette,
+  rethemeFrankElements,
+  resolveFrankAccent,
+} from "./frank/accent-colors";
+import { Provider, useAtom, useAtomValue, appJotaiStore } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
-  isExcalidrawPlusSignedUser,
   STORAGE_KEYS,
   SYNC_BROWSER_TABS_TIMEOUT,
 } from "./app_constants";
-import Collab, {
-  collabAPIAtom,
-  isCollaboratingAtom,
-  isOfflineAtom,
-  userToFollowAtom,
-} from "./collab/Collab";
-import { AppFooter } from "./components/AppFooter";
+import { collabAPIAtom } from "./collab/Collab";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
-import {
-  ExportToExcalidrawPlus,
-  exportToExcalidrawPlus,
-} from "./components/ExportToExcalidrawPlus";
 import { TopErrorBoundary } from "./components/TopErrorBoundary";
 
 import {
-  exportToBackend,
   getCollaborationLinkData,
   importFromBackend,
   isCollaborationLink,
@@ -130,24 +131,23 @@ import {
   localStorageQuotaExceededAtom,
 } from "./data/LocalData";
 import { isBrowserStorageStateNewer } from "./data/tabSync";
-import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
-import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
-import DebugCanvas, {
-  debugRenderer,
-  isVisualDebuggerEnabled,
-  loadSavedDebugState,
-} from "./components/DebugCanvas";
-import { useSimulatedCollaborators } from "./debugCollaborators";
-import { AIComponents } from "./components/AI";
-import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
+import {
+  createIncrementalCanvasMarkdown,
+  createFormattedCanvasElements,
+  createStreamingCanvasBlockElements,
+  frameCanvasElements,
+  getCanvasDocumentTitle,
+  measureCanvasBlockHeight,
+  paginateCanvasBlockHeights,
+  parseCanvasMarkdown,
+  readAIStream,
+  type StreamingCanvasBlock,
+} from "./ai-format";
 
 import "./index.scss";
-
-import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanner";
-import { AppSidebar } from "./components/AppSidebar";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -213,6 +213,906 @@ const shareableLinkConfirmDialog = {
   actionLabel: t("overwriteConfirm.modal.shareableLink.button"),
   color: "danger",
 } as const;
+
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type AIProvider = "deepseek" | "openai";
+type AIIntent = "ask" | "create";
+
+const AICanvasPrompt = ({
+  excalidrawAPI,
+  sceneLifecycle,
+  theme,
+  accentColor,
+  isOpen,
+  onOpen,
+  onClose,
+}: {
+  excalidrawAPI: ExcalidrawImperativeAPI;
+  sceneLifecycle: FrankSceneLifecycle;
+  theme: AppState["theme"];
+  accentColor: string;
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) => {
+  const [provider, setProvider] = useState<AIProvider>("deepseek");
+  const [intent, setIntent] = useState<AIIntent>("ask");
+  const [apiKey, setApiKey] = useState("");
+  const [isEditingApiKey, setIsEditingApiKey] = useState(false);
+  const [drafts, setDrafts] = useState<Record<AIIntent, string>>({
+    ask: "",
+    create: "",
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [framePreset, setFramePreset] = useState<FramePreset>("portrait");
+  const [customFrameSize, setCustomFrameSize] = useState({
+    width: "1080",
+    height: "1350",
+  });
+  const [frameContexts, setFrameContexts] = useState<AIFrameContext[]>(() =>
+    getSelectedFrameContexts(
+      excalidrawAPI.getSceneElements(),
+      excalidrawAPI.getAppState().selectedElementIds,
+    ),
+  );
+  const messagesRef = useRef<AIMessage[]>([]);
+  const nextCardPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const activeRequestRef = useRef<{
+    controller: AbortController;
+    initialElementIds: ReadonlySet<string>;
+    renderer: {
+      cancel: () => void;
+      hasRendered: () => boolean;
+      isSceneIntact: (activeElementIds: ReadonlySet<string>) => boolean;
+    };
+  } | null>(null);
+  const prompt = drafts[intent];
+
+  const cancelActiveRequest = () => {
+    const activeRequest = activeRequestRef.current;
+    if (!activeRequest) {
+      return;
+    }
+    activeRequest.renderer.cancel();
+    activeRequest.controller.abort();
+    activeRequestRef.current = null;
+  };
+
+  const closePrompt = () => {
+    cancelActiveRequest();
+    setIsEditingApiKey(false);
+    onClose();
+  };
+
+  useEffect(() => {
+    return sceneLifecycle.subscribe((snapshot) => {
+      const nextFrameContexts = getSelectedFrameContexts(
+        snapshot.elements,
+        snapshot.selectedElementIds,
+      );
+      setFrameContexts((previousContexts) =>
+        areFrameContextsEqual(previousContexts, nextFrameContexts)
+          ? previousContexts
+          : nextFrameContexts,
+      );
+
+      if (
+        snapshot.transition === "clear" ||
+        snapshot.transition === "replace"
+      ) {
+        messagesRef.current = [];
+        nextCardPositionRef.current = null;
+      }
+
+      const activeRequest = activeRequestRef.current;
+      if (!activeRequest) {
+        return;
+      }
+
+      const sceneChangedBeforeFirstRender =
+        !activeRequest.renderer.hasRendered() &&
+        (snapshot.activeElementIds.size !==
+          activeRequest.initialElementIds.size ||
+          [...snapshot.activeElementIds].some(
+            (id) => !activeRequest.initialElementIds.has(id),
+          ));
+      if (
+        sceneChangedBeforeFirstRender ||
+        !activeRequest.renderer.isSceneIntact(snapshot.activeElementIds)
+      ) {
+        cancelActiveRequest();
+        setIsLoading(false);
+      }
+    });
+  }, [sceneLifecycle]);
+
+  useEffect(() => () => cancelActiveRequest(), []);
+
+  const frameSize =
+    framePreset === "custom"
+      ? {
+          width: clampFrameDimension(customFrameSize.width, 1080),
+          height: clampFrameDimension(customFrameSize.height, 1350),
+        }
+      : FRAME_PRESETS[framePreset];
+
+  const removeFrameContext = (frameId: string) => {
+    const elements = excalidrawAPI.getSceneElements();
+    const selectedElementIds = {
+      ...excalidrawAPI.getAppState().selectedElementIds,
+    };
+    for (const element of elements) {
+      if (!selectedElementIds[element.id]) {
+        continue;
+      }
+      const selectedFrameId =
+        element.type === "frame" ? element.id : element.frameId;
+      if (selectedFrameId === frameId) {
+        delete selectedElementIds[element.id];
+      }
+    }
+    excalidrawAPI.updateScene({
+      appState: { selectedElementIds },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  };
+
+  const createResponseRenderer = (
+    responseProvider: AIProvider,
+    responseIntent: AIIntent,
+  ) => {
+    const appState = excalidrawAPI.getAppState();
+    const isDark = appState.theme === "dark";
+    const pageWidth = frameSize.width;
+    const pageHeight = frameSize.height;
+    const pagePadding = Math.round(
+      Math.max(36, Math.min(64, pageWidth * 0.05)),
+    );
+    const pageGap = Math.round(pagePadding * 1.5);
+    const rowGap = Math.round(pagePadding * 2);
+    const contentWidth = pageWidth - pagePadding * 2;
+    const zoom = appState.zoom.value;
+    const position =
+      nextCardPositionRef.current ||
+      viewportCoordsToSceneCoords(
+        {
+          clientX:
+            appState.offsetLeft + appState.width / 2 - (pageWidth * zoom) / 2,
+          clientY:
+            appState.offsetTop +
+            appState.height / 2 -
+            Math.min((pageHeight * zoom) / 2, 320),
+        },
+        appState,
+      );
+    const header = createFormattedCanvasElements({
+      markdown: "",
+      provider: responseProvider,
+      intent: responseIntent,
+      x: position.x + pagePadding,
+      y: position.y + pagePadding,
+      isDark,
+      width: contentWidth,
+      accentColor,
+    });
+    let headerElements: NonDeletedExcalidrawElement[] = [...header.elements];
+    let frames: NonDeleted<ExcalidrawFrameElement>[] = [];
+    let ownedIds = new Set<string>();
+    let didFocus = false;
+    let cancelled = false;
+    const responseId = crypto.randomUUID();
+    const streamMarkdown = createIncrementalCanvasMarkdown();
+    type RenderedCanvasBlock = {
+      signature: string;
+      x: number;
+      y: number;
+      height: number;
+      elements: NonDeletedExcalidrawElement[];
+    };
+    let renderedBlocks = new Map<number, RenderedCanvasBlock>();
+
+    const replaceResponseElements = (
+      elements: readonly NonDeletedExcalidrawElement[],
+      captureUpdate:
+        | typeof CaptureUpdateAction.EVENTUALLY
+        | typeof CaptureUpdateAction.IMMEDIATELY,
+    ) => {
+      if (cancelled || excalidrawAPI.isDestroyed) {
+        return false;
+      }
+
+      const sceneElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      if (
+        ownedIds.size > 0 &&
+        [...ownedIds].some((id) => {
+          const element = sceneElements.find((element) => element.id === id);
+          return !element || element.isDeleted;
+        })
+      ) {
+        cancelled = true;
+        return false;
+      }
+
+      const nextOwnedIds = new Set(elements.map((element) => element.id));
+      const retainedElements = sceneElements.filter(
+        (element) => !ownedIds.has(element.id),
+      );
+      const removedElements = sceneElements
+        .filter(
+          (element) =>
+            ownedIds.has(element.id) && !nextOwnedIds.has(element.id),
+        )
+        .map((element) =>
+          element.isDeleted
+            ? element
+            : newElementWith(element, { isDeleted: true }),
+        );
+      ownedIds = nextOwnedIds;
+      excalidrawAPI.updateScene({
+        elements: [
+          ...retainedElements,
+          ...removedElements,
+          ...elements,
+        ] as OrderedExcalidrawElement[],
+        captureUpdate,
+      });
+      return true;
+    };
+
+    const layoutBlocks = (
+      blocks: readonly StreamingCanvasBlock[],
+      captureUpdate:
+        | typeof CaptureUpdateAction.EVENTUALLY
+        | typeof CaptureUpdateAction.IMMEDIATELY,
+    ) => {
+      const contentHeight = pageHeight - pagePadding * 2;
+      const heights = blocks.map(({ block }) =>
+        measureCanvasBlockHeight({ block, width: contentWidth, isDark }),
+      );
+      const pages = paginateCanvasBlockHeights({
+        heights,
+        firstPageHeight: contentHeight - header.height,
+        pageHeight: contentHeight,
+      });
+      const nextBlocks = new Map(renderedBlocks);
+      nextBlocks.clear();
+      const nextFrames: NonDeleted<ExcalidrawFrameElement>[] = [];
+      const allElements: NonDeletedExcalidrawElement[] = [];
+      const responseTitle = getCanvasDocumentTitle(
+        blocks.map(({ block }) => block),
+        responseIntent === "create" ? "Frank Canvas" : "Frank response",
+      );
+
+      for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+        const pageX = position.x + pageIndex * (pageWidth + pageGap);
+        const pageY = position.y;
+        let cursorY =
+          pageY + pagePadding + (pageIndex === 0 ? header.height : 0);
+        const blockEntries: {
+          id: number;
+          section: RenderedCanvasBlock;
+        }[] = [];
+        for (const blockIndex of pages[pageIndex]) {
+          const { id, block } = blocks[blockIndex];
+          const signature = JSON.stringify(block);
+          const blockX = pageX + pagePadding;
+          const cached = renderedBlocks.get(id);
+          const section =
+            cached &&
+            cached.signature === signature &&
+            cached.x === blockX &&
+            cached.y === cursorY
+              ? cached
+              : {
+                  signature,
+                  x: blockX,
+                  y: cursorY,
+                  ...createStreamingCanvasBlockElements({
+                    block,
+                    idPrefix: `${responseId}-block-${id}`,
+                    x: blockX,
+                    y: cursorY,
+                    width: contentWidth,
+                    isDark,
+                    previous: cached?.elements,
+                    accentColor,
+                  }),
+                };
+          cursorY += section.height;
+          blockEntries.push({ id, section });
+        }
+        const pageElements = [
+          ...(pageIndex === 0 ? headerElements : []),
+          ...blockEntries.flatMap(({ section }) => section.elements),
+        ];
+        const framed = frameCanvasElements({
+          elements: pageElements,
+          name: `AI / ${responseTitle} / FRAME ${pageIndex + 1} OF ${
+            pages.length
+          }`,
+          isDark,
+          accentColor,
+          frame: frames[pageIndex],
+          bounds: {
+            x: pageX,
+            y: pageY,
+            width: pageWidth,
+            height: pageHeight,
+          },
+        });
+        nextFrames.push(framed.frame);
+        allElements.push(...framed.elements);
+
+        const content = framed.elements.slice(0, -1);
+        let offset = 0;
+        if (pageIndex === 0) {
+          headerElements = content.slice(0, headerElements.length);
+          offset = headerElements.length;
+        }
+        for (const { id, section } of blockEntries) {
+          const elements = content.slice(
+            offset,
+            offset + section.elements.length,
+          );
+          nextBlocks.set(id, { ...section, elements });
+          offset += section.elements.length;
+        }
+      }
+
+      renderedBlocks = nextBlocks;
+      frames = nextFrames;
+      if (!replaceResponseElements(allElements, captureUpdate)) {
+        return null;
+      }
+
+      if (!didFocus && frames[0]) {
+        didFocus = true;
+        excalidrawAPI.setViewport({
+          target: [frames[0]],
+          fit: "scale-down",
+          animation: true,
+          offsets: { ui: true },
+        });
+      }
+
+      return { elements: allElements, pageCount: pages.length };
+    };
+
+    const renderStreaming = () => {
+      return layoutBlocks(
+        streamMarkdown.snapshot(),
+        CaptureUpdateAction.EVENTUALLY,
+      );
+    };
+
+    const pushStreamingDelta = (delta: string) => {
+      if (cancelled) {
+        return;
+      }
+      streamMarkdown.push(delta);
+    };
+
+    const finalize = async (answer: string) => {
+      if (cancelled) {
+        return;
+      }
+      const document = parseCanvasMarkdown(answer);
+      const responseTitle = getCanvasDocumentTitle(
+        document.blocks,
+        responseIntent === "create" ? "Frank Canvas" : "Frank response",
+      );
+      const finalBlocks = document.blocks.map((block, id) => ({
+        id,
+        block,
+        complete: true,
+      }));
+      const layout = layoutBlocks(finalBlocks, CaptureUpdateAction.IMMEDIATELY);
+      if (!layout) {
+        return;
+      }
+
+      if (document.mermaid) {
+        try {
+          const { parseMermaidToExcalidraw } = await import(
+            "@excalidraw/mermaid-to-excalidraw"
+          );
+          const result = await parseMermaidToExcalidraw(document.mermaid);
+          if (cancelled || excalidrawAPI.isDestroyed) {
+            return;
+          }
+          const diagram = convertToExcalidrawElements(result.elements);
+          const [diagramX, diagramY] = getCommonBounds(diagram);
+          const pageIndex = layout.pageCount;
+          const pageX = position.x + pageIndex * (pageWidth + pageGap);
+          const placedDiagram = diagram.map((element) =>
+            newElementWith(element, {
+              x: element.x + pageX + pagePadding - diagramX,
+              y: element.y + position.y + pagePadding - diagramY,
+            }),
+          );
+          const diagramPage = frameCanvasElements({
+            elements: placedDiagram,
+            name: `AI / ${responseTitle} / DIAGRAM`,
+            isDark,
+            accentColor,
+            frame: frames[pageIndex],
+            bounds: {
+              x: pageX,
+              y: position.y,
+              width: pageWidth,
+              height: pageHeight,
+            },
+          });
+          frames = [...frames, diagramPage.frame];
+          if (
+            !replaceResponseElements(
+              [...layout.elements, ...diagramPage.elements],
+              CaptureUpdateAction.IMMEDIATELY,
+            )
+          ) {
+            return;
+          }
+          if (result.files) {
+            excalidrawAPI.addFiles(Object.values(result.files));
+          }
+        } catch {
+          excalidrawAPI.setToast({
+            message: "Text added. The optional diagram could not be drawn.",
+          });
+        }
+      }
+      nextCardPositionRef.current = {
+        x: position.x,
+        y: position.y + pageHeight + rowGap,
+      };
+    };
+
+    return {
+      pushStreamingDelta,
+      renderStreaming,
+      finalize,
+      cancel: () => {
+        cancelled = true;
+      },
+      hasRendered: () => ownedIds.size > 0,
+      isSceneIntact: (activeElementIds: ReadonlySet<string>) =>
+        !cancelled &&
+        (ownedIds.size === 0 ||
+          [...ownedIds].every((id) => activeElementIds.has(id))),
+    };
+  };
+
+  const submitPrompt = async () => {
+    const request = prompt.trim();
+    if (!request || isLoading || (provider === "deepseek" && !apiKey.trim())) {
+      return;
+    }
+
+    const messages: AIMessage[] =
+      intent === "ask"
+        ? [
+            ...messagesRef.current,
+            { role: "user" as const, content: request },
+          ].slice(-12)
+        : [{ role: "user" as const, content: request }];
+    const sceneElements = excalidrawAPI.getSceneElements();
+    const selectedElementIds = excalidrawAPI.getAppState().selectedElementIds;
+    const selectedFrameCount = resolveSelectedFrameIds(
+      sceneElements,
+      selectedElementIds,
+    ).size;
+    const requestFrameContexts = getSelectedFrameContexts(
+      sceneElements,
+      selectedElementIds,
+    );
+    if (selectedFrameCount > MAX_AI_CONTEXT_FRAMES) {
+      excalidrawAPI.setToast({
+        message: `Frank will use the first ${MAX_AI_CONTEXT_FRAMES} selected frames.`,
+      });
+    }
+
+    setIsLoading(true);
+    const renderer = createResponseRenderer(provider, intent);
+    const controller = new AbortController();
+    const activeRequest = {
+      controller,
+      initialElementIds: new Set(sceneLifecycle.getActiveElementIds()),
+      renderer,
+    };
+    activeRequestRef.current = activeRequest;
+    let latestAnswer = "";
+    let renderTimer: number | null = null;
+    let finalized = false;
+
+    const flushStreamingRender = () => {
+      if (renderTimer !== null) {
+        window.clearTimeout(renderTimer);
+        renderTimer = null;
+      }
+      if (latestAnswer) {
+        renderer.renderStreaming();
+      }
+    };
+    const scheduleStreamingRender = (answer: string, delta: string) => {
+      latestAnswer = answer;
+      renderer.pushStreamingDelta(delta);
+      if (renderTimer === null) {
+        renderTimer = window.setTimeout(flushStreamingRender, 40);
+      }
+    };
+
+    try {
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          intent,
+          apiKey: apiKey.trim() || undefined,
+          messages,
+          contextFrames: requestFrameContexts.map(
+            ({ name, width, height, content }) => ({
+              name,
+              width,
+              height,
+              content,
+            }),
+          ),
+        }),
+      });
+      const answer = await readAIStream(response, scheduleStreamingRender);
+      latestAnswer = answer;
+      flushStreamingRender();
+      await renderer.finalize(answer);
+      if (controller.signal.aborted) {
+        return;
+      }
+      finalized = true;
+
+      if (intent === "ask") {
+        messagesRef.current = [
+          ...messages,
+          { role: "assistant" as const, content: answer },
+        ].slice(-12);
+      }
+      setDrafts((currentDrafts) => ({
+        ...currentDrafts,
+        [intent]: "",
+      }));
+      setIsLoading(false);
+      activeRequestRef.current = null;
+      closePrompt();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (!finalized && latestAnswer.trim()) {
+        flushStreamingRender();
+        await renderer.finalize(latestAnswer);
+      }
+      excalidrawAPI.setToast({
+        message: error instanceof Error ? error.message : "AI request failed",
+      });
+    } finally {
+      if (renderTimer !== null) {
+        window.clearTimeout(renderTimer);
+      }
+      if (activeRequestRef.current === activeRequest) {
+        activeRequestRef.current = null;
+        setIsLoading(false);
+      }
+    }
+  };
+
+  return (
+    <div className={`frank-ai frank-ai--${theme}`}>
+      {isOpen ? (
+        <div
+          className="Island frank-ai__panel"
+          role="dialog"
+          aria-label="Frank AI"
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              closePrompt();
+            }
+          }}
+        >
+          <div className="frank-ai__mode" role="group" aria-label="AI mode">
+            <button
+              type="button"
+              className={`ToolIcon ToolIcon_type_toggle ${
+                intent === "ask" ? "ToolIcon--checked" : ""
+              }`}
+              aria-pressed={intent === "ask"}
+              disabled={isLoading}
+              onClick={() => setIntent("ask")}
+            >
+              <span className="ToolIcon__icon">
+                <span className="ToolIcon__label">Ask</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`ToolIcon ToolIcon_type_toggle ${
+                intent === "create" ? "ToolIcon--checked" : ""
+              }`}
+              aria-pressed={intent === "create"}
+              disabled={isLoading}
+              onClick={() => setIntent("create")}
+            >
+              <span className="ToolIcon__icon">
+                <span className="ToolIcon__label">Create</span>
+              </span>
+            </button>
+          </div>
+          {frameContexts.length ? (
+            <div
+              className="frank-ai__context"
+              role="group"
+              aria-label="AI frame context"
+            >
+              <span>Context</span>
+              <div className="frank-ai__context-list">
+                {frameContexts.map((context) => (
+                  <button
+                    key={context.id}
+                    type="button"
+                    title={`Remove ${context.name} from context`}
+                    onClick={() => removeFrameContext(context.id)}
+                  >
+                    <span>{context.name}</span>
+                    <span aria-hidden="true">×</span>
+                  </button>
+                ))}
+              </div>
+              <small>Selected frames are sent with this prompt.</small>
+            </div>
+          ) : null}
+          <div className="frank-ai__composer">
+            <label className="visually-hidden" htmlFor="frank-ai-prompt">
+              {intent === "ask"
+                ? "Ask Frank on canvas"
+                : "Create a canvas from content"}
+            </label>
+            <textarea
+              id="frank-ai-prompt"
+              autoFocus
+              autoComplete="off"
+              data-form-type="other"
+              data-1p-ignore="true"
+              value={prompt}
+              maxLength={intent === "create" ? 20000 : 8000}
+              rows={2}
+              placeholder={
+                intent === "ask"
+                  ? "Ask Frank anything…"
+                  : "Paste or write content to turn into a canvas…"
+              }
+              onChange={(event) =>
+                setDrafts((currentDrafts) => ({
+                  ...currentDrafts,
+                  [intent]: event.target.value,
+                }))
+              }
+            />
+            <button
+              className="frank-ai__voice"
+              type="button"
+              aria-label="Voice input coming soon"
+              title="Voice input coming soon"
+              disabled
+            >
+              {microphoneIcon}
+            </button>
+            <button
+              className="frank-ai__send"
+              type="button"
+              aria-label={
+                isLoading
+                  ? "Frank is writing"
+                  : intent === "ask"
+                  ? "Ask Frank"
+                  : "Create on canvas"
+              }
+              title={intent === "ask" ? "Ask Frank" : "Create on canvas"}
+              disabled={
+                !prompt.trim() ||
+                isLoading ||
+                (provider === "deepseek" && !apiKey.trim())
+              }
+              onClick={submitPrompt}
+            >
+              {isLoading ? <span aria-hidden="true">···</span> : ArrowRightIcon}
+            </button>
+          </div>
+          <div className="frank-ai__controls">
+            <select
+              aria-label="Model provider"
+              value={provider}
+              onChange={(event) =>
+                setProvider(event.target.value as AIProvider)
+              }
+            >
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+            </select>
+            <div className="frank-ai__format">
+              <select
+                aria-label="Frame format"
+                value={framePreset}
+                onChange={(event) =>
+                  setFramePreset(event.target.value as FramePreset)
+                }
+              >
+                {Object.entries(FRAME_PRESETS).map(([value, preset]) => (
+                  <option key={value} value={value}>
+                    {preset.label} · {preset.width}×{preset.height}
+                  </option>
+                ))}
+                <option value="custom">Custom size</option>
+              </select>
+              {framePreset === "custom" ? (
+                <div className="frank-ai__dimensions">
+                  <input
+                    type="number"
+                    min="480"
+                    max="3000"
+                    step="10"
+                    aria-label="Frame width"
+                    value={customFrameSize.width}
+                    onChange={(event) =>
+                      setCustomFrameSize((current) => ({
+                        ...current,
+                        width: event.target.value,
+                      }))
+                    }
+                  />
+                  <span aria-hidden="true">×</span>
+                  <input
+                    type="number"
+                    min="480"
+                    max="3000"
+                    step="10"
+                    aria-label="Frame height"
+                    value={customFrameSize.height}
+                    onChange={(event) =>
+                      setCustomFrameSize((current) => ({
+                        ...current,
+                        height: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              ) : null}
+            </div>
+            {isEditingApiKey ? (
+              <div className="frank-ai__api-key-editor">
+                <input
+                  type="search"
+                  aria-label="Provider access token"
+                  autoFocus
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-protonpass-ignore="true"
+                  spellCheck={false}
+                  value={apiKey}
+                  placeholder="Paste provider token"
+                  onChange={(event) => setApiKey(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      setIsEditingApiKey(false);
+                    }
+                  }}
+                />
+                <button type="button" onClick={() => setIsEditingApiKey(false)}>
+                  Done
+                </button>
+              </div>
+            ) : (
+              <button
+                className="frank-ai__api-key-trigger"
+                type="button"
+                onClick={() => setIsEditingApiKey(true)}
+              >
+                {apiKey ? `API key · ${apiKey.slice(-4)}` : "Add API key"}
+              </button>
+            )}
+            <span>
+              {isLoading ? "Writing on canvas…" : "Key stays in this session"}
+            </span>
+            <button
+              className="frank-ai__close"
+              type="button"
+              aria-label="Close AI input"
+              onClick={closePrompt}
+            >
+              {CloseIcon}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <button
+        className={`ToolIcon ToolIcon_type_toggle frank-ai__trigger frank-dock__trigger ${
+          isOpen ? "ToolIcon--checked" : ""
+        }`}
+        type="button"
+        aria-label="AI"
+        aria-expanded={isOpen}
+        aria-pressed={isOpen}
+        onClick={isOpen ? closePrompt : onOpen}
+      >
+        <span className="ToolIcon__icon">
+          <span className="ToolIcon__label">AI</span>
+        </span>
+      </button>
+    </div>
+  );
+};
+
+type CanvasTool = "ai" | "recording" | null;
+
+const CanvasToolDock = ({
+  excalidrawAPI,
+  theme,
+  accentColor,
+}: {
+  excalidrawAPI: ExcalidrawImperativeAPI;
+  theme: AppState["theme"];
+  accentColor: string;
+}) => {
+  const [activeTool, setActiveTool] = useState<CanvasTool>(null);
+  const [sceneLifecycle] = useState(
+    () => new FrankSceneLifecycle(excalidrawAPI),
+  );
+
+  useEffect(() => {
+    sceneLifecycle.start();
+    return () => sceneLifecycle.stop();
+  }, [sceneLifecycle]);
+
+  return (
+    <>
+      <FramePages
+        excalidrawAPI={excalidrawAPI}
+        sceneLifecycle={sceneLifecycle}
+        theme={theme}
+        accentColor={accentColor}
+      />
+      <div
+        className={`frank-dock frank-dock--${theme}`}
+        aria-label="Canvas tools"
+      >
+        <AICanvasPrompt
+          excalidrawAPI={excalidrawAPI}
+          sceneLifecycle={sceneLifecycle}
+          theme={theme}
+          accentColor={accentColor}
+          isOpen={activeTool === "ai"}
+          onOpen={() => setActiveTool("ai")}
+          onClose={() => setActiveTool(null)}
+        />
+        <FrameRecorder
+          excalidrawAPI={excalidrawAPI}
+          sceneLifecycle={sceneLifecycle}
+          theme={theme}
+          isOpen={activeTool === "recording"}
+          onOpen={() => setActiveTool("recording")}
+          onClose={() => setActiveTool(null)}
+        />
+      </div>
+    </>
+  );
+};
 
 const initializeScene = async (opts: {
   collabAPI: CollabAPI | null;
@@ -375,14 +1275,73 @@ const initializeScene = async (opts: {
 const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
 
-  const [errorMessage, setErrorMessage] = useState("");
-  const isCollabDisabled = isRunningInIframe();
+  const isCollabDisabled = true;
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
 
-  const [langCode, setLangCode] = useAppLangCode();
+  const [accentId, setAccentId] = useState(() => {
+    try {
+      return resolveFrankAccent(
+        window.localStorage.getItem(FRANK_ACCENT_STORAGE_KEY),
+      ).id;
+    } catch {
+      return resolveFrankAccent(null).id;
+    }
+  });
+  const accent = resolveFrankAccent(accentId);
+  const isDarkTheme = editorTheme === "dark";
+  const accentPalette = getFrankAccentPalette(accent, isDarkTheme);
+  const previousAccentRef = useRef({
+    accent: DEFAULT_FRANK_ACCENT,
+    isDark: false,
+  });
+  const accentStyle = {
+    "--frank-accent": accentPalette.color,
+    "--frank-accent-dark": accentPalette.hover,
+    "--frank-accent-soft": accentPalette.soft,
+    "--frank-accent-contrast": accentPalette.ink,
+  } as CSSProperties;
 
-  const editorInterface = useEditorInterface();
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FRANK_ACCENT_STORAGE_KEY, accent.id);
+    } catch {
+      // The accent still applies for the current session.
+    }
+    const root = document.documentElement;
+    root.style.setProperty("--frank-accent", accentPalette.color);
+    root.style.setProperty("--frank-accent-dark", accentPalette.hover);
+    root.style.setProperty("--frank-accent-soft", accentPalette.soft);
+    root.style.setProperty("--frank-accent-contrast", accentPalette.ink);
+    document
+      .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      ?.setAttribute("content", accentPalette.color);
+  }, [accent, accentPalette]);
+
+  useEffect(() => {
+    const previousAccent = previousAccentRef.current;
+    if (
+      !excalidrawAPI ||
+      (previousAccent.accent.id === accent.id &&
+        previousAccent.isDark === isDarkTheme)
+    ) {
+      return;
+    }
+    const rethemed = rethemeFrankElements({
+      elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+      nextAccent: accent,
+      isDark: isDarkTheme,
+    });
+    previousAccentRef.current = { accent, isDark: isDarkTheme };
+    if (rethemed.didChange) {
+      excalidrawAPI.updateScene({
+        elements: rethemed.elements as OrderedExcalidrawElement[],
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    }
+  }, [accent, excalidrawAPI, isDarkTheme]);
+
+  const [langCode, setLangCode] = useAppLangCode();
 
   // initial state
   // ---------------------------------------------------------------------------
@@ -395,8 +1354,6 @@ const ExcalidrawWrapper = () => {
       resolvablePromise<ExcalidrawInitialDataState | null>();
   }
 
-  const debugCanvasRef = useRef<HTMLCanvasElement>(null);
-
   useEffect(() => {
     trackEvent("load", "frame", getFrame());
     // Delayed so that the app has a time to load the latest SW
@@ -405,43 +1362,7 @@ const ExcalidrawWrapper = () => {
     }, VERSION_TIMEOUT);
   }, []);
 
-  const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
-  const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
-    return isCollaborationLink(window.location.href);
-  });
-  const collabError = useAtomValue(collabErrorIndicatorAtom);
-  const userToFollow = useAtomValue(userToFollowAtom);
-
-  const viewportStatusFrame = useMemo(
-    () =>
-      userToFollow
-        ? {
-            border: "var(--color-primary-hover)",
-            label: {
-              label: (
-                <>
-                  Following{" "}
-                  <span
-                    style={{
-                      display: "block",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      maxWidth: 100,
-                    }}
-                    title={userToFollow.username}
-                  >
-                    {userToFollow.username}
-                  </span>
-                </>
-              ),
-              onClose: () => collabAPI?.setUserToFollow(null),
-            },
-          }
-        : null,
-    [userToFollow, collabAPI],
-  );
 
   useHandleLibrary({
     excalidrawAPI,
@@ -449,28 +1370,6 @@ const ExcalidrawWrapper = () => {
     // TODO maybe remove this in several months (shipped: 24-03-11)
     migrationAdapter: LibraryLocalStorageMigrationAdapter,
   });
-
-  const [, forceRefresh] = useState(false);
-
-  useEffect(() => {
-    if (isDevEnv()) {
-      const debugState = loadSavedDebugState();
-
-      if (debugState.enabled && !window.visualDebug) {
-        window.visualDebug = {
-          data: [],
-        };
-      } else {
-        delete window.visualDebug;
-      }
-      forceRefresh((prev) => !prev);
-    }
-  }, [excalidrawAPI]);
-
-  // ?collaborators=<N> — populate the canvas with N static fake
-  // collaborators for exercising avatar/UserList UI without a real
-  // collab room
-  useSimulatedCollaborators(excalidrawAPI);
 
   // ---------------------------------------------------------------------------
   // Hoisted loadImages
@@ -670,13 +1569,13 @@ const ExcalidrawWrapper = () => {
     };
 
     window.addEventListener(EVENT.HASHCHANGE, onHashChange, false);
-    window.addEventListener(EVENT.UNLOAD, onUnload, false);
+    window.addEventListener(EVENT.PAGE_HIDE, onUnload, false);
     window.addEventListener(EVENT.BLUR, visibilityChange, false);
     document.addEventListener(EVENT.VISIBILITY_CHANGE, visibilityChange, false);
     window.addEventListener(EVENT.FOCUS, visibilityChange, false);
     return () => {
       window.removeEventListener(EVENT.HASHCHANGE, onHashChange, false);
-      window.removeEventListener(EVENT.UNLOAD, onUnload, false);
+      window.removeEventListener(EVENT.PAGE_HIDE, onUnload, false);
       window.removeEventListener(EVENT.BLUR, visibilityChange, false);
       window.removeEventListener(EVENT.FOCUS, visibilityChange, false);
       document.removeEventListener(
@@ -752,60 +1651,6 @@ const ExcalidrawWrapper = () => {
         }
       });
     }
-
-    // Render the debug scene if the debug canvas is available
-    if (debugCanvasRef.current && excalidrawAPI) {
-      debugRenderer(
-        debugCanvasRef.current,
-        appState,
-        elements,
-        window.devicePixelRatio,
-      );
-    }
-  };
-
-  const [latestShareableLink, setLatestShareableLink] = useState<string | null>(
-    null,
-  );
-
-  const onExportToBackend = async (
-    exportedElements: readonly NonDeletedExcalidrawElement[],
-    appState: Partial<AppState>,
-    files: BinaryFiles,
-  ) => {
-    if (exportedElements.length === 0) {
-      throw new Error(t("alerts.cannotExportEmptyCanvas"));
-    }
-    try {
-      const { url, errorMessage } = await exportToBackend(
-        exportedElements,
-        {
-          ...appState,
-          viewBackgroundColor: appState.exportBackground
-            ? appState.viewBackgroundColor
-            : getDefaultAppState().viewBackgroundColor,
-        },
-        files,
-      );
-
-      if (errorMessage) {
-        throw new Error(errorMessage);
-      }
-
-      if (url) {
-        setLatestShareableLink(url);
-      }
-    } catch (error: any) {
-      if (error.name !== "AbortError") {
-        const { width, height } = appState;
-        console.error(error, {
-          width,
-          height,
-          devicePixelRatio: window.devicePixelRatio,
-        });
-        throw new Error(error.message);
-      }
-    }
   };
 
   const renderCustomStats = (
@@ -821,14 +1666,7 @@ const ExcalidrawWrapper = () => {
     );
   };
 
-  const isOffline = useAtomValue(isOfflineAtom);
-
   const localStorageQuotaExceeded = useAtomValue(localStorageQuotaExceededAtom);
-
-  const onCollabDialogOpen = useCallback(
-    () => setShareDialogState({ isOpen: true, type: "collaborationOnly" }),
-    [setShareDialogState],
-  );
 
   // ---------------------------------------------------------------------------
   // onExport — intercepts file save to wait for pending image loads
@@ -899,90 +1737,16 @@ const ExcalidrawWrapper = () => {
     );
   }
 
-  const ExcalidrawPlusCommand = {
-    label: "Excalidraw+",
-    category: DEFAULT_CATEGORIES.links,
-    predicate: true,
-    icon: <div style={{ width: 14 }}>{ExcalLogo}</div>,
-    keywords: ["plus", "cloud", "server"],
-    perform: () => {
-      window.open(
-        `${
-          import.meta.env.VITE_APP_PLUS_LP
-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=command_palette`,
-        "_blank",
-      );
-    },
-  };
-  const ExcalidrawPlusAppCommand = {
-    label: "Sign up",
-    category: DEFAULT_CATEGORIES.links,
-    predicate: true,
-    icon: <div style={{ width: 14 }}>{ExcalLogo}</div>,
-    keywords: [
-      "excalidraw",
-      "plus",
-      "cloud",
-      "server",
-      "signin",
-      "login",
-      "signup",
-    ],
-    perform: () => {
-      window.open(
-        `${
-          import.meta.env.VITE_APP_PLUS_APP
-        }?utm_source=excalidraw&utm_medium=app&utm_content=command_palette`,
-        "_blank",
-      );
-    },
-  };
-
   return (
-    <div
-      style={{ height: "100%" }}
-      className={clsx("excalidraw-app", {
-        "is-collaborating": isCollaborating,
-      })}
-    >
+    <div style={{ height: "100%", ...accentStyle }} className="excalidraw-app">
       <Excalidraw
-        viewportStatusFrame={viewportStatusFrame}
-        userToFollow={userToFollow}
         onChange={onChange}
         onExport={onExport}
         initialData={initialStatePromiseRef.current.promise}
-        isCollaborating={isCollaborating}
-        onPointerUpdate={collabAPI?.onPointerUpdate}
         UIOptions={{
           canvasActions: {
             toggleTheme: true,
-            export: {
-              onExportToBackend,
-              renderCustomUI: excalidrawAPI
-                ? (elements, appState, files) => {
-                    return (
-                      <ExportToExcalidrawPlus
-                        elements={elements}
-                        appState={appState}
-                        files={files}
-                        name={excalidrawAPI.getName()}
-                        onError={(error) => {
-                          excalidrawAPI?.updateScene({
-                            appState: {
-                              errorMessage: error.message,
-                            },
-                          });
-                        }}
-                        onSuccess={() => {
-                          excalidrawAPI.updateScene({
-                            appState: { openDialog: null },
-                          });
-                        }}
-                      />
-                    );
-                  }
-                : undefined,
-            },
+            export: {},
           },
         }}
         langCode={langCode}
@@ -992,30 +1756,6 @@ const ExcalidrawWrapper = () => {
         autoFocus={true}
         theme={editorTheme}
         onThemeChange={setAppTheme}
-        renderTopRightUI={(isMobile) => {
-          if (isMobile || !collabAPI || isCollabDisabled) {
-            return null;
-          }
-
-          return (
-            <div className="excalidraw-ui-top-right">
-              {excalidrawAPI?.getEditorInterface().formFactor === "desktop" && (
-                <ExcalidrawPlusPromoBanner
-                  isSignedIn={isExcalidrawPlusSignedUser}
-                />
-              )}
-
-              {collabError.message && <CollabError collabError={collabError} />}
-              <LiveCollaborationTrigger
-                isCollaborating={isCollaborating}
-                onSelect={() =>
-                  setShareDialogState({ isOpen: true, type: "share" })
-                }
-                editorInterface={editorInterface}
-              />
-            </div>
-          );
-        }}
         onLinkOpen={(element, event) => {
           if (element.link && isElementLink(element.link)) {
             event.preventDefault();
@@ -1028,250 +1768,22 @@ const ExcalidrawWrapper = () => {
         }}
       >
         <AppMainMenu
-          onCollabDialogOpen={onCollabDialogOpen}
-          isCollaborating={isCollaborating}
-          isCollabEnabled={!isCollabDisabled}
           theme={appTheme}
-          refresh={() => forceRefresh((prev) => !prev)}
+          accentId={accent.id}
+          onAccentChange={setAccentId}
         />
-        <AppWelcomeScreen
-          onCollabDialogOpen={onCollabDialogOpen}
-          isCollabEnabled={!isCollabDisabled}
-        />
+        <AppWelcomeScreen />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
           <OverwriteConfirmDialog.Actions.SaveToDisk />
-          {excalidrawAPI && (
-            <OverwriteConfirmDialog.Action
-              title={t("overwriteConfirm.action.excalidrawPlus.title")}
-              actionLabel={t("overwriteConfirm.action.excalidrawPlus.button")}
-              onClick={() => {
-                exportToExcalidrawPlus(
-                  excalidrawAPI.getSceneElements(),
-                  excalidrawAPI.getAppState(),
-                  excalidrawAPI.getFiles(),
-                  excalidrawAPI.getName(),
-                );
-              }}
-            >
-              {t("overwriteConfirm.action.excalidrawPlus.description")}
-            </OverwriteConfirmDialog.Action>
-          )}
         </OverwriteConfirmDialog>
-        <AppFooter onChange={() => excalidrawAPI?.refresh()} />
-        {excalidrawAPI && <AIComponents excalidrawAPI={excalidrawAPI} />}
-
-        <TTDDialogTrigger />
-        {isCollaborating && isOffline && (
-          <div className="alertalert--warning">
-            {t("alerts.collabOfflineWarning")}
-          </div>
-        )}
         {localStorageQuotaExceeded && (
           <div className="alert alert--danger">
             {t("alerts.localStorageQuotaExceeded")}
           </div>
         )}
-        {latestShareableLink && (
-          <ShareableLinkDialog
-            link={latestShareableLink}
-            onCloseRequest={() => setLatestShareableLink(null)}
-            setErrorMessage={setErrorMessage}
-          />
-        )}
-        {excalidrawAPI && !isCollabDisabled && (
-          <Collab excalidrawAPI={excalidrawAPI} />
-        )}
-
-        <ShareDialog
-          collabAPI={collabAPI}
-          onExportToBackend={async () => {
-            if (excalidrawAPI) {
-              try {
-                await onExportToBackend(
-                  excalidrawAPI.getSceneElements(),
-                  excalidrawAPI.getAppState(),
-                  excalidrawAPI.getFiles(),
-                );
-              } catch (error: any) {
-                setErrorMessage(error.message);
-              }
-            }
-          }}
-        />
-
-        <AppSidebar />
-
-        {errorMessage && (
-          <ErrorDialog onClose={() => setErrorMessage("")}>
-            {errorMessage}
-          </ErrorDialog>
-        )}
-
         <CommandPalette
           customCommandPaletteItems={[
-            {
-              label: t("labels.liveCollaboration"),
-              category: DEFAULT_CATEGORIES.app,
-              keywords: [
-                "team",
-                "multiplayer",
-                "share",
-                "public",
-                "session",
-                "invite",
-              ],
-              icon: usersIcon,
-              perform: () => {
-                setShareDialogState({
-                  isOpen: true,
-                  type: "collaborationOnly",
-                });
-              },
-            },
-            {
-              label: t("roomDialog.button_stopSession"),
-              category: DEFAULT_CATEGORIES.app,
-              predicate: () => !!collabAPI?.isCollaborating(),
-              keywords: [
-                "stop",
-                "session",
-                "end",
-                "leave",
-                "close",
-                "exit",
-                "collaboration",
-              ],
-              perform: () => {
-                if (collabAPI) {
-                  collabAPI.stopCollaboration();
-                  if (!collabAPI.isCollaborating()) {
-                    setShareDialogState({ isOpen: false });
-                  }
-                }
-              },
-            },
-            {
-              label: t("labels.share"),
-              category: DEFAULT_CATEGORIES.app,
-              predicate: true,
-              icon: share,
-              keywords: [
-                "link",
-                "shareable",
-                "readonly",
-                "export",
-                "publish",
-                "snapshot",
-                "url",
-                "collaborate",
-                "invite",
-              ],
-              perform: async () => {
-                setShareDialogState({ isOpen: true, type: "share" });
-              },
-            },
-            {
-              label: "GitHub",
-              icon: GithubIcon,
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              keywords: [
-                "issues",
-                "bugs",
-                "requests",
-                "report",
-                "features",
-                "social",
-                "community",
-              ],
-              perform: () => {
-                window.open(
-                  "https://github.com/excalidraw/excalidraw",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            {
-              label: t("labels.followUs"),
-              icon: XBrandIcon,
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              keywords: ["twitter", "contact", "social", "community"],
-              perform: () => {
-                window.open(
-                  "https://x.com/excalidraw",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            {
-              label: t("labels.discordChat"),
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              icon: DiscordIcon,
-              keywords: [
-                "chat",
-                "talk",
-                "contact",
-                "bugs",
-                "requests",
-                "report",
-                "feedback",
-                "suggestions",
-                "social",
-                "community",
-              ],
-              perform: () => {
-                window.open(
-                  "https://discord.gg/UexuTaE",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            {
-              label: "YouTube",
-              icon: youtubeIcon,
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              keywords: ["features", "tutorials", "howto", "help", "community"],
-              perform: () => {
-                window.open(
-                  "https://youtube.com/@excalidraw",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            ...(isExcalidrawPlusSignedUser
-              ? [
-                  {
-                    ...ExcalidrawPlusAppCommand,
-                    label: "Sign in / Go to Excalidraw+",
-                  },
-                ]
-              : [ExcalidrawPlusCommand, ExcalidrawPlusAppCommand]),
-
-            {
-              label: t("overwriteConfirm.action.excalidrawPlus.button"),
-              category: DEFAULT_CATEGORIES.export,
-              icon: exportToPlus,
-              predicate: true,
-              keywords: ["plus", "export", "save", "backup"],
-              perform: () => {
-                if (excalidrawAPI) {
-                  exportToExcalidrawPlus(
-                    excalidrawAPI.getSceneElements(),
-                    excalidrawAPI.getAppState(),
-                    excalidrawAPI.getFiles(),
-                    excalidrawAPI.getName(),
-                  );
-                }
-              },
-            },
             {
               label: t("labels.installPWA"),
               category: DEFAULT_CATEGORIES.app,
@@ -1289,25 +1801,19 @@ const ExcalidrawWrapper = () => {
             },
           ]}
         />
-        {isVisualDebuggerEnabled() && excalidrawAPI && (
-          <DebugCanvas
-            appState={excalidrawAPI.getAppState()}
-            scale={window.devicePixelRatio}
-            ref={debugCanvasRef}
+        {excalidrawAPI ? (
+          <CanvasToolDock
+            excalidrawAPI={excalidrawAPI}
+            theme={editorTheme}
+            accentColor={accentPalette.color}
           />
-        )}
+        ) : null}
       </Excalidraw>
     </div>
   );
 };
 
 const ExcalidrawApp = () => {
-  const isCloudExportWindow =
-    window.location.pathname === "/excalidraw-plus-export";
-  if (isCloudExportWindow) {
-    return <ExcalidrawPlusIframeExport />;
-  }
-
   return (
     <TopErrorBoundary>
       <Provider store={appJotaiStore}>

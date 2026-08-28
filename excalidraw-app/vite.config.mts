@@ -1,16 +1,87 @@
 import path from "path";
-import { defineConfig, loadEnv } from "vite";
+
 import react from "@vitejs/plugin-react";
+import { defineConfig, loadEnv } from "vite";
 import svgrPlugin from "vite-plugin-svgr";
 import { ViteEjsPlugin } from "vite-plugin-ejs";
 import { VitePWA } from "vite-plugin-pwa";
 import checker from "vite-plugin-checker";
 import { createHtmlPlugin } from "vite-plugin-html";
 import Sitemap from "vite-plugin-sitemap";
+
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
+
+import { handleFrankAIRequest } from "./frank/ai-server";
+
+const frankAIPlugin = (
+  openAIKey?: string,
+  openAIModel = "gpt-5.4-mini",
+): import("vite").Plugin => ({
+  name: "frank-ai",
+  configureServer(server) {
+    server.middlewares.use("/api/ai", async (request, response) => {
+      const abortController = new AbortController();
+      response.on("close", () => {
+        if (!response.writableEnded) {
+          abortController.abort();
+        }
+      });
+      try {
+        let rawBody = "";
+        for await (const chunk of request) {
+          rawBody += chunk;
+          if (rawBody.length > 64_000) {
+            response.statusCode = 413;
+            response.end(JSON.stringify({ error: "Request is too large" }));
+            return;
+          }
+        }
+        const webResponse = await handleFrankAIRequest(
+          new Request("http://localhost/api/ai", {
+            method: request.method,
+            body: rawBody || undefined,
+            headers: {
+              "content-type":
+                request.headers["content-type"] || "application/json",
+            },
+            signal: abortController.signal,
+          }),
+          { openAIKey, openAIModel },
+        );
+        response.statusCode = webResponse.status;
+        webResponse.headers.forEach((value, key) =>
+          response.setHeader(key, value),
+        );
+        if (!webResponse.body) {
+          response.end();
+          return;
+        }
+        const reader = webResponse.body.getReader();
+        while (!response.writableEnded) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          response.write(value);
+        }
+        response.end();
+      } catch (error) {
+        if (!abortController.signal.aborted) {
+          console.error("Frank AI development middleware failed", error);
+        }
+        if (!response.writableEnded) {
+          response.statusCode = 500;
+          response.end(JSON.stringify({ error: "Unable to answer right now" }));
+        }
+      }
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
+  const serverEnv = loadEnv(mode, `../`, "OPENAI_");
   // https://vitejs.dev/config/
   return {
     server: {
@@ -132,6 +203,9 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 0,
     },
     plugins: [
+      // ponytail: keep the API key in the local Vite server; extract this
+      // endpoint only when Frank Canvas gets a production backend.
+      frankAIPlugin(serverEnv.OPENAI_API_KEY, serverEnv.OPENAI_MODEL),
       Sitemap({
         hostname: "https://excalidraw.com",
         outDir: "build",
