@@ -136,7 +136,7 @@
       justify-content: center;
       width: 100%;
       min-width: 0;
-      height: 3rem;
+      height: 2.75rem;
       margin: 0;
       padding: 0 1.1rem;
       border: 0;
@@ -144,7 +144,7 @@
       background: transparent;
       color: var(--frank-ink);
       box-shadow: none;
-      font: 500 0.78rem/1 Helvetica, Arial, sans-serif;
+      font: 500 0.75rem/1 var(--ui-font);
       text-align: center;
       cursor: pointer;
       pointer-events: auto;
@@ -154,8 +154,8 @@
       }
 
       &[aria-pressed="true"] {
-        background: var(--frank-blue-soft);
-        color: var(--frank-blue-dark);
+        background: var(--frank-blue);
+        color: var(--frank-accent-ink);
       }
 
       &:focus-visible {
@@ -192,8 +192,8 @@
         }
 
         &[aria-pressed="true"] {
-          background: #171717;
-          color: #ffffff;
+          background: var(--frank-blue);
+          color: var(--frank-accent-ink);
         }
       }
     }
@@ -222,9 +222,9 @@
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
       border-radius: var(--frank-control-radius);
-      background: var(--frank-paper);
+      background: var(--frank-white);
       color: var(--frank-ink);
-      box-shadow: 0 8px 24px rgba(18, 18, 18, 0.12);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
       animation: frank-ai-open 160ms ease-out;
       pointer-events: auto;
       transform: translateX(-50%);
@@ -278,11 +278,13 @@
 
         &[aria-pressed="true"] {
           border-bottom-color: var(--frank-blue);
-          color: var(--frank-ink);
+          background: var(--frank-blue);
+          color: var(--frank-accent-ink);
         }
 
         &:hover:not(:disabled) {
-          color: var(--frank-blue);
+          background: var(--frank-blue-soft);
+          color: var(--frank-ink);
         }
 
         &:focus-visible {
@@ -354,6 +356,7 @@
         &:hover,
         &:focus-visible {
           border-color: var(--frank-blue);
+          background: var(--frank-blue-soft);
           outline: 0;
         }
       }
@@ -549,10 +552,21 @@
       .frank-ai__mode button {
         color: #8c8c8c;
 
-        &[aria-pressed="true"] {
-          border-bottom-color: var(--frank-blue);
+        &:hover:not(:disabled):not([aria-pressed="true"]) {
+          background: #202020;
           color: #f5f5f5;
         }
+
+        &[aria-pressed="true"] {
+          border-bottom-color: var(--frank-blue);
+          background: var(--frank-blue);
+          color: var(--frank-accent-ink);
+        }
+      }
+
+      .frank-ai__context-list button:hover,
+      .frank-ai__context-list button:focus-visible {
+        background: #202020;
       }
 
       .frank-ai__context > span,
@@ -728,8 +742,8 @@
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
       border-radius: var(--frank-control-radius);
-      background: var(--frank-paper);
-      box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
+      background: var(--frank-white);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
 
       > button {
         display: flex;
@@ -908,7 +922,8 @@
       cursor: pointer;
 
       &:hover {
-        color: var(--frank-blue);
+        background: var(--frank-blue-soft);
+        color: inherit;
       }
 
       &:disabled {
@@ -937,8 +952,8 @@
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
       border-radius: var(--frank-control-radius);
-      background: var(--frank-paper);
-      box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
+      background: var(--frank-white);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
       white-space: nowrap;
       pointer-events: auto;
       transform: translateX(-50%);
@@ -1006,8 +1021,8 @@
       border: 1px solid var(--frank-rule);
       border-top: 2px solid var(--frank-blue);
       border-radius: var(--frank-control-radius);
-      background: var(--frank-paper);
-      box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
+      background: var(--frank-white);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
       pointer-events: auto;
 
       button {
@@ -1087,12 +1102,23 @@
         height: 5.4rem;
         padding: 0.45rem 0.2rem;
         border: 1px solid var(--frank-rule);
+        background: var(--frank-white);
         color: #6b6b66;
         font-size: 0.58rem;
 
+        &:hover:not(:disabled) {
+          background: var(--frank-blue-soft);
+          color: var(--frank-ink);
+        }
+
         &[aria-pressed="true"] {
           border-color: var(--frank-blue);
-          color: var(--frank-ink);
+          background: var(--frank-blue);
+          color: var(--frank-accent-ink);
+
+          .frank-recorder__layout-icon {
+            background: transparent;
+          }
         }
       }
     }
@@ -1288,6 +1314,10 @@
 
       button {
         border-color: #343434;
+
+        &:hover:not(:disabled):not([aria-pressed="true"]) {
+          background: #202020;
+        }
       }
 
       .frank-recorder__status,
@@ -1302,16 +1332,23 @@
 
       .frank-recorder__segments button[aria-pressed="true"] {
         border-color: var(--frank-blue);
-        background: #171717;
-        color: #ffffff;
+        background: var(--frank-blue);
+        color: var(--frank-accent-ink);
       }
 
       .frank-recorder__layouts button {
+        background: #0a0a0a;
         color: #8c8c8c;
+
+        &:hover:not(:disabled):not([aria-pressed="true"]) {
+          background: #202020;
+          color: #f5f5f5;
+        }
 
         &[aria-pressed="true"] {
           border-color: var(--frank-blue);
-          color: #f5f5f5;
+          background: var(--frank-blue);
+          color: var(--frank-accent-ink);
         }
       }
 
@@ -1922,8 +1959,8 @@
     border: 1px solid var(--frank-rule);
     border-top: 3px solid var(--frank-blue);
     border-radius: var(--frank-control-radius);
-    background: var(--frank-paper);
-    box-shadow: 0 10px 30px rgba(18, 18, 18, 0.14);
+    background: var(--frank-white);
+    box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
   }
 
   .Modal .Island {
