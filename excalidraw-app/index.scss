@@ -118,9 +118,10 @@
     overflow: visible;
     width: min(22rem, calc(100% - 18rem));
     border: 1px solid var(--frank-rule);
-    border-top: 3px solid var(--frank-blue);
+    border-top: 2px solid var(--frank-blue);
     border-radius: 0.1rem;
-    background: var(--frank-paper);
+    background: var(--frank-white);
+    box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     transform: translateX(-50%);
     pointer-events: none;
 
@@ -166,6 +167,7 @@
       border-color: #343434;
       border-top-color: var(--frank-blue);
       background: #0a0a0a;
+      box-shadow: none;
 
       > .frank-recorder {
         border-left-color: #343434;
@@ -615,14 +617,14 @@
     right: 1rem;
     display: flex;
     flex-direction: column;
-    width: 4.25rem;
+    width: 5rem;
     max-height: min(32rem, calc(100% - 10rem));
     overflow: visible;
     border: 1px solid var(--frank-rule);
     border-top: 2px solid var(--frank-blue);
-    border-radius: 0.2rem;
-    background: var(--frank-paper);
-    box-shadow: 0 4px 16px rgba(18, 18, 18, 0.1);
+    border-radius: 0.1rem;
+    background: var(--frank-white);
+    box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     color: var(--frank-ink);
     font-family: Helvetica, Arial, sans-serif;
     transform: translateY(-50%);
@@ -631,11 +633,11 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      min-height: 2.25rem;
-      padding: 0 0.55rem;
+      min-height: 2.5rem;
+      padding: 0 0.65rem;
       border-bottom: 1px solid var(--frank-rule);
       color: #6b6b66;
-      font: 600 0.52rem/1 Helvetica, Arial, sans-serif;
+      font: 600 0.56rem/1 Helvetica, Arial, sans-serif;
       letter-spacing: 0.1em;
       text-transform: uppercase;
 
@@ -648,9 +650,8 @@
       display: flex;
       flex: 1;
       flex-direction: column;
-      gap: 0.35rem;
       min-height: 0;
-      padding: 0.45rem;
+      padding: 0;
       overflow-y: auto;
       overscroll-behavior: contain;
       scrollbar-width: thin;
@@ -665,11 +666,12 @@
       align-items: center;
       justify-content: center;
       width: 100%;
-      min-width: 2.75rem;
-      min-height: 2.75rem;
-      padding: 0.3rem;
-      border: 1px solid var(--frank-rule);
-      border-radius: 0.2rem;
+      min-width: 0;
+      min-height: 3.1rem;
+      padding: 0.4rem;
+      border: 0;
+      border-bottom: 1px solid var(--frank-rule);
+      border-radius: 0;
       background: transparent;
       color: inherit;
       font: 500 0.62rem/1 Helvetica, Arial, sans-serif;
@@ -677,7 +679,6 @@
       touch-action: manipulation;
 
       &:hover {
-        border-color: #a5a59f;
         background: #f1f1ed;
       }
 
@@ -689,25 +690,24 @@
 
     &__list button[aria-current="page"],
     &__list button[aria-pressed="true"] {
-      border-color: var(--frank-blue);
-      background: var(--frank-blue-soft);
-      color: var(--frank-blue-dark);
+      background: var(--frank-blue);
+      color: var(--frank-accent-ink);
     }
 
     &__ratio {
       width: 1.45rem;
       max-height: 1.5rem;
       border: 1px solid currentColor;
-      background: var(--frank-paper);
+      background: transparent;
     }
 
     &__add {
       width: auto;
-      margin: 0 0.45rem 0.45rem;
-      border-style: dashed;
+      min-height: 2.75rem;
+      margin: 0;
       color: #6b6b66;
-      font-size: 1.25rem;
-      font-weight: 300;
+      font-size: 1.15rem;
+      font-weight: 400;
     }
 
     &__sizes {
@@ -867,9 +867,8 @@
 
       .frank-pages__list button[aria-current="page"],
       .frank-pages__list button[aria-pressed="true"] {
-        border-color: var(--frank-blue);
-        background: #171717;
-        color: #ffffff;
+        background: var(--frank-blue);
+        color: var(--frank-accent-ink);
       }
 
       .frank-pages__ratio {
@@ -1537,7 +1536,17 @@
 
     .App-bottom-bar > .Island,
     .App-menu_bottom .Island {
+      background: var(--frank-white);
       border-color: var(--frank-rule);
+      border-top-color: var(--frank-blue);
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
+    }
+
+    .help-icon {
+      background: var(--frank-white);
+      border: 1px solid var(--frank-rule);
+      border-top: 2px solid var(--frank-blue);
+      border-radius: 0.1rem;
       box-shadow: 0 2px 10px rgba(18, 18, 18, 0.05);
     }
 
@@ -1782,16 +1791,17 @@
 
       .App-bottom-bar > .Island,
       .App-menu_bottom .Island {
-        background: #1b1b1b;
-        border-color: transparent;
+        background: #0a0a0a;
+        border-color: #343434;
+        border-top-color: var(--frank-blue);
         box-shadow: none;
       }
 
       .zoom-actions,
       .undo-redo-buttons,
       .help-icon {
-        background: #1b1b1b;
-        border: 0;
+        background: #0a0a0a;
+        border-color: #343434;
         box-shadow: none;
       }
 
